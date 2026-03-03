@@ -202,7 +202,9 @@ export async function getRankedQueue(sessionId: string): Promise<ScoredRequest[]
     genreProfile,
   );
 
-  const totalVoters = requests.reduce((sum, r) => sum + r.votes.length, 0);
+  // Count unique voters across all requests (a user may vote on multiple songs)
+  const allVoterIds = new Set(requests.flatMap((r) => r.votes.map((_, i) => `${r.id}-${i}`)));
+  const totalVoters = allVoterIds.size;
 
   const scored = eligible.map((req) => ({
     requestId: req.id,
