@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "jsqr": "^1.4.0",
     "next": "16.1.6",
     "prisma": "^5.22.0",
     "qrcode.react": "^4.2.0",

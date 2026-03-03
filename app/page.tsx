@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { QrScanner } from '@/components/QrScanner';
 
 export default function Home() {
   return (
@@ -10,12 +10,7 @@ export default function Home() {
           Scan the QR code at your venue to join the session, request songs, and vote on the queue.
         </p>
         <div className="pt-4">
-          <Link
-            href="/venues"
-            className="inline-block bg-purple-600 hover:bg-purple-700 text-white font-semibold px-8 py-3 rounded-xl transition-colors"
-          >
-            Browse Venues
-          </Link>
+          <QrScanner />
         </div>
       </div>
     </main>
