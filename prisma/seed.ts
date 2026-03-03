@@ -20,6 +20,7 @@ async function main() {
       genreProfile: { primary: 'hip-hop', secondary: ['r&b', 'trap'] },
       bpmRange: { min: 80, max: 140 },
       energyCurveProfile: { earlyNight: 0.4, peakHour: 1.0, lateNight: 0.7 },
+      adminUsername: 'admin',
       adminPassword: 'admin123',
     },
   });
@@ -132,7 +133,9 @@ async function main() {
   console.log(`✅ Request & vote created`);
   console.log('\n🎉 Seed complete!');
   console.log(`\nVenue URL: /venues/seed-venue-1`);
-  console.log(`Admin URL: /admin/seed-venue-1 (password: admin123)`);
+  console.log(`Admin URL: /admin/seed-venue-1 (username: admin, password: admin123)`);
+  console.log(`Admin Sign-In: /admin/sign-in`);
+  console.log(`Admin Sign-Up: /admin/sign-up`);
   console.log(`Session URL: /session/seed-session-1`);
 }
 
