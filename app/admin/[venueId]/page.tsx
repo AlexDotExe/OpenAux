@@ -35,7 +35,13 @@ export default function AdminPage() {
 
   useEffect(() => {
     setOrigin(window.location.origin);
-  }, []);
+    // Auto-authenticate if the password was stored by the sign-in page
+    const stored = sessionStorage.getItem(`adminPassword_${params.venueId}`);
+    if (stored) {
+      setPassword(stored);
+      setAuthed(true);
+    }
+  }, [params.venueId]);
 
   const load = useCallback(async () => {
     if (!params.venueId) return;

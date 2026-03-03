@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { QrScanner } from '@/components/QrScanner';
 
 export default function Home() {
@@ -11,6 +12,14 @@ export default function Home() {
         </p>
         <div className="pt-4">
           <QrScanner />
+        </div>
+        <div className="pt-2">
+          <Link
+            href="/admin/sign-in"
+            className="text-sm text-gray-500 hover:text-purple-400 transition-colors"
+          >
+            Sign in as Admin →
+          </Link>
         </div>
       </div>
     </main>
