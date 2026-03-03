@@ -9,16 +9,22 @@ export async function findVenueById(id: string): Promise<Venue | null> {
   return prisma.venue.findUnique({ where: { id } });
 }
 
+export async function findVenueByAdminUsername(adminUsername: string): Promise<Venue | null> {
+  return prisma.venue.findUnique({ where: { adminUsername } });
+}
+
 export async function listVenues(): Promise<Venue[]> {
   return prisma.venue.findMany({ orderBy: { createdAt: 'desc' } });
 }
 
 export async function createVenue(data: {
   name: string;
+  adminUsername: string;
+  adminPassword: string;
   genreProfile?: object;
   bpmRange?: object;
   energyCurveProfile?: object;
-  adminPassword?: string;
+  streamingService?: string;
 }): Promise<Venue> {
   return prisma.venue.create({ data });
 }

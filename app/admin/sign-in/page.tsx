@@ -1,31 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-interface Venue {
-  id: string;
-  name: string;
-}
+import Link from 'next/link';
 
 export default function AdminSignInPage() {
   const router = useRouter();
-  const [venues, setVenues] = useState<Venue[]>([]);
-  const [venueId, setVenueId] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/venues')
-      .then((r) => r.json())
-      .then((data: Venue[]) => {
-        setVenues(data);
-        if (data.length > 0) setVenueId(data[0].id);
-      })
-      .catch(() => setError('Failed to load venues. Please refresh.'));
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,14 +19,14 @@ export default function AdminSignInPage() {
       const res = await fetch('/api/admin/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, venueId }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? 'Sign in failed');
       } else {
-        sessionStorage.setItem(`adminPassword_${venueId}`, password);
-        router.push(`/admin/${venueId}`);
+        sessionStorage.setItem(`adminPassword_${data.venueId}`, password);
+        router.push(`/admin/${data.venueId}`);
       }
     } finally {
       setLoading(false);
@@ -57,28 +41,11 @@ export default function AdminSignInPage() {
           <p className="text-gray-400 text-sm">Sign in to manage your venue</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {venues.length > 0 && (
-            <div className="space-y-1">
-              <label className="block text-sm text-gray-400">Venue</label>
-              <select
-                value={venueId}
-                onChange={(e) => setVenueId(e.target.value)}
-                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
-                required
-              >
-                {venues.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
           <div className="space-y-1">
             <label className="block text-sm text-gray-400">Username</label>
             <input
               type="text"
-              placeholder="admin"
+              placeholder="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
@@ -107,6 +74,12 @@ export default function AdminSignInPage() {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
+        <p className="text-center text-sm text-gray-500">
+          New here?{' '}
+          <Link href="/admin/sign-up" className="text-purple-400 hover:text-purple-300 transition-colors">
+            Create an account →
+          </Link>
+        </p>
       </div>
     </main>
   );

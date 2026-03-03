@@ -1,33 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { findVenueByAdminUsername } from '@/lib/db/venues';
 
 /**
  * POST /api/admin/auth
- * Validates admin credentials (username + password) for a given venue.
- * Username must be "admin"; password must match the venue's adminPassword.
+ * Validates admin credentials (username + password).
+ * Looks up the venue by adminUsername — no venueId required.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { username, password, venueId } = body;
+    const { username, password } = body;
 
-    if (!username || !password || !venueId) {
+    if (!username || !password) {
       return NextResponse.json(
-        { error: 'username, password, and venueId are required' },
+        { error: 'username and password are required' },
         { status: 400 },
       );
     }
 
-    if (username !== 'admin') {
+    const venue = await findVenueByAdminUsername(username);
+    if (!venue) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    const venue = await findVenueById(venueId);
-    if (!venue) {
-      return NextResponse.json({ error: 'Venue not found' }, { status: 404 });
-    }
-
-    if (password !== (venue as { adminPassword?: string }).adminPassword) {
+    if (password !== venue.adminPassword) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 

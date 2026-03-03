@@ -14,13 +14,13 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, genreProfile, bpmRange, energyCurveProfile, adminPassword } = body;
+    const { name, adminUsername, adminPassword, genreProfile, bpmRange, energyCurveProfile } = body;
 
-    if (!name) {
-      return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    if (!name || !adminUsername || !adminPassword) {
+      return NextResponse.json({ error: 'name, adminUsername, and adminPassword are required' }, { status: 400 });
     }
 
-    const venue = await createVenue({ name, genreProfile, bpmRange, energyCurveProfile, adminPassword });
+    const venue = await createVenue({ name, adminUsername, adminPassword, genreProfile, bpmRange, energyCurveProfile });
     return NextResponse.json(venue, { status: 201 });
   } catch (error) {
     console.error('[POST /api/venues]', error);

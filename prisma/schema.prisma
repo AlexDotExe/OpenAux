@@ -35,12 +35,16 @@ model Venue {
   // energyCurveProfile: defines how energy should evolve over a night
   // e.g. {"earlyNight": 0.4, "peakHour": 1.0, "lateNight": 0.7}
   energyCurveProfile Json @default("{\"earlyNight\": 0.4, \"peakHour\": 1.0, \"lateNight\": 0.7}")
-  adminPassword String   @default("admin123")
+  adminUsername String   @unique
+  adminPassword String
+  // streamingService: 'spotify' | 'youtube' | null — validated at the API layer
+  streamingService String?
   createdAt    DateTime  @default(now())
   sessions     Session[]
   blacklist    Blacklist[]
 
   @@index([name])
+  @@index([adminUsername])
 }
 
 model Song {
