@@ -1,0 +1,148 @@
+// This is your Prisma schema file
+// Designed for scalability: entities support future analytics, boost payments, and multi-venue deployments
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String        @id @default(uuid())
+  deviceFingerprint String        @unique
+  // reputationScore: derived from approval rates of submitted songs
+  // Higher score = more influence weight in voting
+  reputationScore   Float         @default(1.0)
+  // influenceWeight is computed from reputationScore - stored for caching purposes
+  influenceWeight   Float         @default(1.0)
+  createdAt         DateTime      @default(now())
+  requests          SongRequest[]
+  votes             Vote[]
+
+  @@index([deviceFingerprint])
+}
+
+model Venue {
+  id           String    @id @default(uuid())
+  name         String
+  // genreProfile: {"primary": "hip-hop", "secondary": ["r&b", "pop"]}
+  genreProfile Json      @default("{}")
+  // bpmRange: {"min": 80, "max": 140}
+  bpmRange     Json      @default("{\"min\": 80, \"max\": 140}")
+  // energyCurveProfile: defines how energy should evolve over a night
+  // e.g. {"earlyNight": 0.4, "peakHour": 1.0, "lateNight": 0.7}
+  energyCurveProfile Json @default("{\"earlyNight\": 0.4, \"peakHour\": 1.0, \"lateNight\": 0.7}")
+  adminPassword String   @default("admin123")
+  createdAt    DateTime  @default(now())
+  sessions     Session[]
+  blacklist    Blacklist[]
+
+  @@index([name])
+}
+
+model Song {
+  id         String        @id @default(uuid())
+  spotifyId  String?       @unique
+  title      String
+  artist     String
+  bpm        Float?
+  // genreTags: ["hip-hop", "r&b"]
+  genreTags  String[]
+  createdAt  DateTime      @default(now())
+  requests   SongRequest[]
+  playbacks  PlaybackHistory[]
+  blacklists Blacklist[]
+
+  @@index([spotifyId])
+  @@index([artist])
+}
+
+model Session {
+  id                String          @id @default(uuid())
+  venueId           String
+  venue             Venue           @relation(fields: [venueId], references: [id])
+  startedAt         DateTime        @default(now())
+  endedAt           DateTime?
+  // currentEnergyLevel: 0.0 to 1.0 — controls BPM preference and intensity
+  currentEnergyLevel Float          @default(0.5)
+  isActive          Boolean         @default(true)
+  requests          SongRequest[]
+  playbacks         PlaybackHistory[]
+
+  @@index([venueId])
+  @@index([isActive])
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  PLAYED
+  SKIPPED
+}
+
+model SongRequest {
+  id         String        @id @default(uuid())
+  sessionId  String
+  session    Session       @relation(fields: [sessionId], references: [id])
+  songId     String
+  song       Song          @relation(fields: [songId], references: [id])
+  userId     String
+  user       User          @relation(fields: [userId], references: [id])
+  // voteWeight: cumulative weighted score for this request
+  voteWeight Float         @default(0.0)
+  status     RequestStatus @default(PENDING)
+  createdAt  DateTime      @default(now())
+  votes      Vote[]
+
+  @@index([sessionId, status])
+  @@index([songId])
+  @@index([userId])
+}
+
+model Vote {
+  id        String      @id @default(uuid())
+  requestId String
+  request   SongRequest @relation(fields: [requestId], references: [id])
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+  // value: +1 for upvote, -1 for downvote
+  value     Int
+  // weight: the user's influenceWeight at time of voting
+  weight    Float       @default(1.0)
+  createdAt DateTime    @default(now())
+
+  @@unique([requestId, userId])
+  @@index([requestId])
+  @@index([userId])
+}
+
+model PlaybackHistory {
+  id         String   @id @default(uuid())
+  sessionId  String
+  session    Session  @relation(fields: [sessionId], references: [id])
+  songId     String
+  song       Song     @relation(fields: [songId], references: [id])
+  playedAt   DateTime @default(now())
+  // crowdScore: aggregated vote score at time of play
+  crowdScore Float    @default(0.0)
+  // skipRate: 0.0-1.0, used to penalize songs that get skipped often
+  skipRate   Float    @default(0.0)
+
+  @@index([sessionId])
+  @@index([songId])
+}
+
+model Blacklist {
+  id       String @id @default(uuid())
+  venueId  String
+  venue    Venue  @relation(fields: [venueId], references: [id])
+  songId   String
+  song     Song   @relation(fields: [songId], references: [id])
+  addedAt  DateTime @default(now())
+
+  @@unique([venueId, songId])
+  @@index([venueId])
+}
