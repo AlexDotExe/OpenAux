@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface VenueData {
   venue: { id: string; name: string };
@@ -30,6 +31,11 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [energySlider, setEnergySlider] = useState(0.5);
   const [status, setStatus] = useState<string | null>(null);
+  const [origin, setOrigin] = useState('');
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   const load = useCallback(async () => {
     if (!params.venueId) return;
@@ -174,6 +180,26 @@ export default function AdminPage() {
             </button>
           </div>
         </div>
+
+        {/* QR Code Share */}
+        {venueData?.activeSession && (
+          <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+            <h2 className="font-semibold">Share with Guests</h2>
+            <p className="text-gray-400 text-sm">Guests can scan this QR code to join the session.</p>
+            <div className="flex justify-center bg-white rounded-xl p-4">
+              <QRCodeSVG
+                value={`${origin}/venues/${params.venueId}`}
+                size={200}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                level="M"
+              />
+            </div>
+            <p className="text-center text-xs text-gray-500 break-all">
+              {origin}/venues/{params.venueId}
+            </p>
+          </div>
+        )}
 
         {/* Energy Slider */}
         {venueData?.activeSession && (
