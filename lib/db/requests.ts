@@ -8,7 +8,7 @@ import { SongRequest, RequestStatus } from '@prisma/client';
 export type SongRequestWithDetails = SongRequest & {
   song: { id: string; title: string; artist: string; bpm: number | null; genreTags: string[] };
   user: { id: string; influenceWeight: number };
-  votes: { value: number; weight: number }[];
+  votes: { userId: string; value: number; weight: number }[];
   _count?: { votes: number };
 };
 
@@ -26,7 +26,7 @@ export async function findActiveRequests(sessionId: string): Promise<SongRequest
     include: {
       song: { select: { id: true, title: true, artist: true, bpm: true, genreTags: true } },
       user: { select: { id: true, influenceWeight: true } },
-      votes: { select: { value: true, weight: true } },
+      votes: { select: { userId: true, value: true, weight: true } },
     },
     orderBy: { voteWeight: 'desc' },
   }) as Promise<SongRequestWithDetails[]>;
@@ -52,7 +52,7 @@ export async function findRequestById(id: string): Promise<SongRequestWithDetail
     include: {
       song: { select: { id: true, title: true, artist: true, bpm: true, genreTags: true } },
       user: { select: { id: true, influenceWeight: true } },
-      votes: { select: { value: true, weight: true } },
+      votes: { select: { userId: true, value: true, weight: true } },
     },
   }) as Promise<SongRequestWithDetails | null>;
 }

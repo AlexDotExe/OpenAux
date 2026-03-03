@@ -155,7 +155,7 @@ export async function selectNextSong(
 
   // Count unique voters across all requests to compute crowd factor
   const allVoterIds = new Set(
-    requests.flatMap((r) => r.votes.map((_, i) => `${r.id}-${i}`)),
+    requests.flatMap((r) => r.votes.map((v) => v.userId)),
   );
   const totalVoters = allVoterIds.size;
 
