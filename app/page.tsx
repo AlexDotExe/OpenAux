@@ -16,7 +16,7 @@ export default function Home() {
         <div className="pt-2">
           <Link
             href="/admin/sign-in"
-            className="text-sm text-gray-500 hover:text-purple-400 transition-colors"
+            className="text-sm text-gray-500 hover:text-green-400 transition-colors"
           >
             Sign in as Admin →
           </Link>

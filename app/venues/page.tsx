@@ -44,7 +44,7 @@ export default function VenuesPage() {
             >
               <div className="font-semibold text-lg">{v.name}</div>
               {v.genreProfile?.primary && (
-                <div className="text-purple-400 text-sm mt-1">{v.genreProfile.primary}</div>
+                <div className="text-green-400 text-sm mt-1">{v.genreProfile.primary}</div>
               )}
             </Link>
           ))

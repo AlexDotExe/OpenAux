@@ -48,7 +48,7 @@ export default function AdminSignInPage() {
               placeholder="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
               required
             />
           </div>
@@ -59,7 +59,7 @@ export default function AdminSignInPage() {
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
               required
             />
           </div>
@@ -69,14 +69,14 @@ export default function AdminSignInPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
+            className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
           >
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
         <p className="text-center text-sm text-gray-500">
           New here?{' '}
-          <Link href="/admin/sign-up" className="text-purple-400 hover:text-purple-300 transition-colors">
+          <Link href="/admin/sign-up" className="text-green-400 hover:text-green-300 transition-colors">
             Create an account →
           </Link>
         </p>

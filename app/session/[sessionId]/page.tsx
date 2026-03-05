@@ -2,9 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { useSessionStore } from '@/lib/store/useSessionStore';
 import { SongRequestForm } from '@/components/SongRequestForm';
 import { SongQueue } from '@/components/SongQueue';
+import { NowPlayingUser } from '@/components/NowPlayingUser';
 
 interface SessionData {
   session: {
@@ -20,22 +22,53 @@ interface SessionData {
     artist: string;
     score: number;
     voteCount: number;
+    isBoosted?: boolean;
+    boostAmount?: number;
+    userId?: string;
   }>;
+  venueName?: string;
 }
 
 export default function SessionPage() {
   const params = useParams<{ sessionId: string }>();
-  const { initDevice, setUser, setSession, setQueue, deviceFingerprint, queue, influenceWeight } =
+  const { initDevice, setUser, setSession, setQueue, deviceFingerprint, queue, influenceWeight, userId } =
     useSessionStore();
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [boostPrice, setBoostPrice] = useState(5.0);
+  const [monetizationEnabled, setMonetizationEnabled] = useState(false);
+  const [userCount, setUserCount] = useState(0);
 
-  const loadSession = useCallback(async () => {
+  const loadEffectiveSettings = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/effective-settings`);
+      if (res.ok) {
+        const settings = await res.json();
+        console.log('[SessionPage] Effective settings loaded:', settings);
+        setBoostPrice(settings.boostPrice ?? 0);
+        setMonetizationEnabled(settings.monetizationEnabled ?? false);
+      }
+    } catch (err) {
+      console.error('Failed to load effective settings:', err);
+    }
+  }, []);
+
+  const loadSession = useCallback(async (updatedQueue?: any[]) => {
     const res = await fetch(`/api/sessions/${params.sessionId}`);
     const data: SessionData = await res.json();
     setSessionData(data);
-    setQueue(data.queue);
-  }, [params.sessionId, setQueue]);
+
+    // Use the provided queue if available, otherwise use fetched queue
+    const queueToUse = updatedQueue ?? data.queue;
+    setQueue(queueToUse);
+
+    // Count unique users
+    const uniqueUsers = new Set(queueToUse?.map(item => item.userId).filter(Boolean));
+    setUserCount(uniqueUsers.size);
+
+    // Load effective settings (smart or manual)
+    await loadEffectiveSettings(params.sessionId);
+  }, [params.sessionId, setQueue, loadEffectiveSettings]);
 
   useEffect(() => {
     const fp = initDevice();
@@ -98,33 +131,46 @@ export default function SessionPage() {
       {/* Header */}
       <div className="sticky top-0 bg-gray-950/90 backdrop-blur border-b border-gray-800 p-4">
         <div className="max-w-md mx-auto flex items-center justify-between">
-          <h1 className="text-lg font-bold">🎵 Live Session</h1>
+          <Link href="/" className="text-lg font-bold text-green-400 hover:text-green-300 transition-colors">
+            OpenAux
+          </Link>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Energy</span>
-            <div className="w-20 h-2 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-purple-500 rounded-full transition-all"
-                style={{ width: `${session.currentEnergyLevel * 100}%` }}
-              />
-            </div>
+            <span className="text-sm text-gray-300 font-semibold">
+              🎵 {sessionData.venueName || 'Live Session'}
+            </span>
           </div>
         </div>
       </div>
 
       <div className="max-w-md mx-auto p-4 space-y-6">
-        {/* Influence indicator */}
-        <div className="bg-gray-900 rounded-xl p-3 flex items-center justify-between">
-          <span className="text-sm text-gray-400">Your Influence</span>
-          <span className="text-purple-400 font-semibold text-sm">
-            ×{influenceWeight.toFixed(2)}
-          </span>
+        {/* Guest Status */}
+        <div className="bg-gray-900 rounded-xl p-3">
+          <p className="text-sm text-gray-400">
+            Logged in as <span className="text-white font-semibold">Guest</span>
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            <a href="/signup" className="text-green-400 hover:text-green-300 underline">
+              Create an account
+            </a>
+            {' '}to save your settings and get priority voting
+          </p>
         </div>
 
+        {/* Now Playing */}
+        <NowPlayingUser sessionId={session.id} />
+
         {/* Song Request Form */}
-        <SongRequestForm sessionId={session.id} onRequestSubmitted={loadSession} />
+        <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />
 
         {/* Song Queue */}
-        <SongQueue queue={queue} onVote={handleVote} />
+        <SongQueue
+          queue={queue}
+          onVote={handleVote}
+          currentUserId={userId ?? undefined}
+          boostPrice={boostPrice}
+          monetizationEnabled={monetizationEnabled}
+          onBoostSuccess={loadSession}
+        />
       </div>
     </main>
   );

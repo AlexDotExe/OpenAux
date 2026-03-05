@@ -18,6 +18,9 @@ export interface Song {
   score: number;
   voteCount: number;
   userVote?: 1 | -1;
+  isBoosted?: boolean;
+  boostAmount?: number;
+  userId?: string;
 }
 
 export interface SessionState {

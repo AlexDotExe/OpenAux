@@ -38,29 +38,45 @@ model Venue {
   adminUsername String   @unique
   adminPassword String
   // streamingService: 'spotify' | 'youtube' | null — validated at the API layer
-  streamingService String?
+  streamingService      String?
+  oauthAccessToken      String?
+  oauthRefreshToken     String?
+  oauthTokenExpiresAt   DateTime?
+  oauthScope            String?
+  connectedAccountName  String?
+  connectedAccountEmail String?
   createdAt    DateTime  @default(now())
   sessions     Session[]
   blacklist    Blacklist[]
+  // Admin controls and monetization settings
+  defaultBoostPrice       Float   @default(5.0)    // Price to boost song (manual mode)
+  maxSongRepeatsPerHour   Int     @default(3)      // Max plays per hour for same song (manual mode)
+  maxSongsPerUser         Int     @default(5)      // Max pending requests per user (manual mode)
+  monetizationEnabled     Boolean @default(false)  // Toggle boost feature
+  smartMonetizationEnabled Boolean @default(false) // Auto-adjust pricing/limits based on user count
 
   @@index([name])
   @@index([adminUsername])
 }
 
 model Song {
-  id         String        @id @default(uuid())
-  spotifyId  String?       @unique
-  title      String
-  artist     String
-  bpm        Float?
+  id          String        @id @default(uuid())
+  spotifyId   String?       @unique
+  youtubeId   String?       @unique
+  title       String
+  artist      String
+  albumArtUrl String?
+  durationMs  Int?
+  bpm         Float?
   // genreTags: ["hip-hop", "r&b"]
-  genreTags  String[]
-  createdAt  DateTime      @default(now())
-  requests   SongRequest[]
-  playbacks  PlaybackHistory[]
-  blacklists Blacklist[]
+  genreTags   String[]
+  createdAt   DateTime      @default(now())
+  requests    SongRequest[]
+  playbacks   PlaybackHistory[]
+  blacklists  Blacklist[]
 
   @@index([spotifyId])
+  @@index([youtubeId])
   @@index([artist])
 }
 
@@ -73,6 +89,8 @@ model Session {
   // currentEnergyLevel: 0.0 to 1.0 — controls BPM preference and intensity
   currentEnergyLevel Float          @default(0.5)
   isActive          Boolean         @default(true)
+  // simulatedUserCount: for testing smart monetization behavior
+  simulatedUserCount Int            @default(0)
   requests          SongRequest[]
   playbacks         PlaybackHistory[]
 
@@ -85,6 +103,7 @@ enum RequestStatus {
   APPROVED
   PLAYED
   SKIPPED
+  DELETED
 }
 
 model SongRequest {
@@ -100,6 +119,10 @@ model SongRequest {
   status     RequestStatus @default(PENDING)
   createdAt  DateTime      @default(now())
   votes      Vote[]
+  // Boost monetization fields
+  isBoosted    Boolean  @default(false)
+  boostAmount  Float    @default(0.0)
+  boostPaidAt  DateTime?
 
   @@index([sessionId, status])
   @@index([songId])

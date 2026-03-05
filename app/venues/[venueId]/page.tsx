@@ -75,7 +75,7 @@ export default function VenuePage() {
         <div>
           <h1 className="text-3xl font-bold">{venue.name}</h1>
           {venue.genreProfile?.primary && (
-            <p className="text-purple-400 mt-1">{venue.genreProfile.primary}</p>
+            <p className="text-green-400 mt-1">{venue.genreProfile.primary}</p>
           )}
         </div>
 
@@ -89,7 +89,7 @@ export default function VenuePage() {
             </div>
             <button
               onClick={() => router.push(`/session/${activeSession.id}`)}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-4 rounded-xl transition-colors text-lg"
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-xl transition-colors text-lg"
             >
               Join the Session 🎧
             </button>

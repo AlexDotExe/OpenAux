@@ -44,3 +44,60 @@ export async function blacklistSong(venueId: string, songId: string): Promise<vo
     create: { venueId, songId },
   });
 }
+
+export async function updateVenueOAuthTokens(
+  venueId: string,
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: Date;
+    scope?: string;
+    streamingService: string;
+    connectedAccountName?: string | null;
+    connectedAccountEmail?: string | null;
+  },
+): Promise<Venue> {
+  return prisma.venue.update({
+    where: { id: venueId },
+    data: {
+      oauthAccessToken: tokens.accessToken,
+      oauthRefreshToken: tokens.refreshToken,
+      oauthTokenExpiresAt: tokens.expiresAt,
+      oauthScope: tokens.scope ?? null,
+      streamingService: tokens.streamingService,
+      connectedAccountName: tokens.connectedAccountName ?? null,
+      connectedAccountEmail: tokens.connectedAccountEmail ?? null,
+    },
+  });
+}
+
+export async function clearVenueOAuthTokens(venueId: string): Promise<Venue> {
+  return prisma.venue.update({
+    where: { id: venueId },
+    data: {
+      oauthAccessToken: null,
+      oauthRefreshToken: null,
+      oauthTokenExpiresAt: null,
+      oauthScope: null,
+      streamingService: null,
+      connectedAccountName: null,
+      connectedAccountEmail: null,
+    },
+  });
+}
+
+export async function updateVenueSettings(
+  venueId: string,
+  settings: {
+    defaultBoostPrice?: number;
+    maxSongRepeatsPerHour?: number;
+    maxSongsPerUser?: number;
+    monetizationEnabled?: boolean;
+    smartMonetizationEnabled?: boolean;
+  },
+): Promise<Venue> {
+  return prisma.venue.update({
+    where: { id: venueId },
+    data: settings,
+  });
+}

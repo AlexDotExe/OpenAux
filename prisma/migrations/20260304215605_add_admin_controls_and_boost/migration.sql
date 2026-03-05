@@ -1,0 +1,10 @@
+-- AlterTable
+ALTER TABLE "SongRequest" ADD COLUMN     "boostAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+ADD COLUMN     "boostPaidAt" TIMESTAMP(3),
+ADD COLUMN     "isBoosted" BOOLEAN NOT NULL DEFAULT false;
+
+-- AlterTable
+ALTER TABLE "Venue" ADD COLUMN     "defaultBoostPrice" DOUBLE PRECISION NOT NULL DEFAULT 5.0,
+ADD COLUMN     "maxSongRepeatsPerHour" INTEGER NOT NULL DEFAULT 3,
+ADD COLUMN     "maxSongsPerUser" INTEGER NOT NULL DEFAULT 5,
+ADD COLUMN     "monetizationEnabled" BOOLEAN NOT NULL DEFAULT false;

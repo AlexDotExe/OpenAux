@@ -71,8 +71,8 @@ export default function AdminSignUpPage() {
 
         {/* Step indicator */}
         <div className="flex gap-2">
-          <div className={`flex-1 h-1 rounded-full ${step >= 1 ? 'bg-purple-500' : 'bg-gray-700'}`} />
-          <div className={`flex-1 h-1 rounded-full ${step >= 2 ? 'bg-purple-500' : 'bg-gray-700'}`} />
+          <div className={`flex-1 h-1 rounded-full ${step >= 1 ? 'bg-green-500' : 'bg-gray-700'}`} />
+          <div className={`flex-1 h-1 rounded-full ${step >= 2 ? 'bg-green-500' : 'bg-gray-700'}`} />
         </div>
 
         {step === 1 && (
@@ -84,7 +84,7 @@ export default function AdminSignUpPage() {
                 placeholder="Username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
                 required
               />
             </div>
@@ -95,7 +95,7 @@ export default function AdminSignUpPage() {
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
                 required
               />
             </div>
@@ -106,7 +106,7 @@ export default function AdminSignUpPage() {
                 placeholder="Confirm password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
                 required
               />
             </div>
@@ -115,7 +115,7 @@ export default function AdminSignUpPage() {
             )}
             <button
               type="submit"
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 rounded-lg transition-colors"
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg transition-colors"
             >
               Next →
             </button>
@@ -131,7 +131,7 @@ export default function AdminSignUpPage() {
                 placeholder="e.g. Club Nexus"
                 value={venueName}
                 onChange={(e) => setVenueName(e.target.value)}
-                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
                 required
               />
             </div>
@@ -179,7 +179,7 @@ export default function AdminSignUpPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
+                className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
               >
                 {loading ? 'Creating…' : 'Create Account'}
               </button>
@@ -189,7 +189,7 @@ export default function AdminSignUpPage() {
 
         <p className="text-center text-sm text-gray-500">
           Already have an account?{' '}
-          <Link href="/admin/sign-in" className="text-purple-400 hover:text-purple-300 transition-colors">
+          <Link href="/admin/sign-in" className="text-green-400 hover:text-green-300 transition-colors">
             Sign in →
           </Link>
         </p>

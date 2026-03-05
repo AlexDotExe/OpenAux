@@ -69,3 +69,33 @@ export async function checkDuplicateRequest(
     },
   });
 }
+
+// Note: DELETED requests are excluded from active requests query above
+// They remain in the database for analytics but don't appear in the queue
+
+export async function countUserRequestsInSession(
+  userId: string,
+  sessionId: string,
+): Promise<number> {
+  return prisma.songRequest.count({
+    where: {
+      userId,
+      sessionId,
+      status: { in: ['PENDING', 'APPROVED'] },
+    },
+  });
+}
+
+export async function boostRequest(
+  requestId: string,
+  amount: number,
+): Promise<SongRequest> {
+  return prisma.songRequest.update({
+    where: { id: requestId },
+    data: {
+      isBoosted: true,
+      boostAmount: amount,
+      boostPaidAt: new Date(),
+    },
+  });
+}

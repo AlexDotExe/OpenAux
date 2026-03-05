@@ -15,9 +15,10 @@
  */
 
 import { findActiveRequests, SongRequestWithDetails } from '../db/requests';
-import { getRecentlyPlayedSongIds } from '../db/playback';
-import { getVenueBlacklist } from '../db/venues';
+import { getRecentlyPlayedSongIds, getBatchSongPlayCountsInLastHour } from '../db/playback';
+import { getVenueBlacklist, findVenueById } from '../db/venues';
 import { findSessionById } from '../db/sessions';
+import { getCachedQueue, setCachedQueue } from './queueCache';
 
 export interface ScoredRequest {
   requestId: string;
@@ -26,6 +27,9 @@ export interface ScoredRequest {
   artist: string;
   score: number;
   voteCount: number;
+  isBoosted?: boolean;
+  boostAmount?: number;
+  userId?: string;
 }
 
 export interface DjEngineConfig {
@@ -49,6 +53,7 @@ const DEFAULT_CONFIG: DjEngineConfig = {
  * Score = SUM(vote.value × vote.weight)
  *       × energyAdjustment
  *       × crowdFactor
+ *       × boostMultiplier
  *
  * Future: add genre affinity score, BPM match score, time-of-night weighting
  */
@@ -75,7 +80,10 @@ export function calculateRequestScore(
   // Crowd size factor: slightly boosts all scores in large crowds
   const crowdFactor = 1 + Math.log1p(totalVoters) * config.crowdSizeFactor;
 
-  return baseScore * energyAdjustment * crowdFactor;
+  // Boost multiplier: boosted songs get 10x score
+  const boostMultiplier = request.isBoosted ? 10.0 : 1.0;
+
+  return baseScore * energyAdjustment * crowdFactor * boostMultiplier;
 }
 
 /**
@@ -130,26 +138,31 @@ export async function selectNextSong(
   const session = await findSessionById(sessionId);
   if (!session) return null;
 
-  const [requests, recentlyPlayedIds, blacklistedIds] = await Promise.all([
+  const [requests, recentlyPlayedIds, blacklistedIds, venue] = await Promise.all([
     findActiveRequests(sessionId),
     getRecentlyPlayedSongIds(sessionId, config.recentPlayExclusionCount),
     getVenueBlacklist(session.venueId),
+    findVenueById(session.venueId),
   ]);
 
-  // Fetch venue genre profile (type-safe JSON cast)
-  const { prisma } = await import('../db/prisma');
-  const venue = await prisma.venue.findUnique({
-    where: { id: session.venueId },
-    select: { genreProfile: true },
-  });
   const genreProfile = (venue?.genreProfile ?? {}) as { primary?: string; secondary?: string[] };
 
-  const eligible = filterEligibleRequests(
+  let eligible = filterEligibleRequests(
     requests,
     new Set(recentlyPlayedIds),
     new Set(blacklistedIds),
     genreProfile,
   );
+
+  // Filter songs that exceed max repeats per hour (batched query)
+  if (venue && venue.maxSongRepeatsPerHour > 0) {
+    const songIds = eligible.map(req => req.songId);
+    const playCounts = await getBatchSongPlayCountsInLastHour(sessionId, songIds);
+    eligible = eligible.filter(req => {
+      const playCount = playCounts.get(req.songId) ?? 0;
+      return playCount < venue.maxSongRepeatsPerHour;
+    });
+  }
 
   if (eligible.length === 0) return null;
 
@@ -167,6 +180,9 @@ export async function selectNextSong(
     artist: req.song.artist,
     score: calculateRequestScore(req, session.currentEnergyLevel, totalVoters, config),
     voteCount: req.votes.length,
+    isBoosted: req.isBoosted,
+    boostAmount: req.boostAmount,
+    userId: req.userId,
   }));
 
   // Sort descending by score
@@ -177,30 +193,47 @@ export async function selectNextSong(
 
 /**
  * Get ranked list of all eligible songs for display in the UI queue.
+ * Uses a 10-second cache to reduce database load from frequent polling.
  */
-export async function getRankedQueue(sessionId: string): Promise<ScoredRequest[]> {
+export async function getRankedQueue(sessionId: string, skipCache = false): Promise<ScoredRequest[]> {
+  // Check cache first (unless explicitly skipped)
+  if (!skipCache) {
+    const cached = getCachedQueue(sessionId);
+    if (cached) {
+      console.log('[getRankedQueue] Cache HIT for session', sessionId);
+      return cached;
+    }
+    console.log('[getRankedQueue] Cache MISS for session', sessionId);
+  }
+
   const session = await findSessionById(sessionId);
   if (!session) return [];
 
-  const [requests, recentlyPlayedIds, blacklistedIds] = await Promise.all([
+  const [requests, recentlyPlayedIds, blacklistedIds, venue] = await Promise.all([
     findActiveRequests(sessionId),
     getRecentlyPlayedSongIds(sessionId, 10),
     getVenueBlacklist(session.venueId),
+    findVenueById(session.venueId),
   ]);
 
-  const { prisma } = await import('../db/prisma');
-  const venue = await prisma.venue.findUnique({
-    where: { id: session.venueId },
-    select: { genreProfile: true },
-  });
   const genreProfile = (venue?.genreProfile ?? {}) as { primary?: string; secondary?: string[] };
 
-  const eligible = filterEligibleRequests(
+  let eligible = filterEligibleRequests(
     requests,
     new Set(recentlyPlayedIds),
     new Set(blacklistedIds),
     genreProfile,
   );
+
+  // Filter songs that exceed max repeats per hour (batched query)
+  if (venue && venue.maxSongRepeatsPerHour > 0) {
+    const songIds = eligible.map(req => req.songId);
+    const playCounts = await getBatchSongPlayCountsInLastHour(sessionId, songIds);
+    eligible = eligible.filter(req => {
+      const playCount = playCounts.get(req.songId) ?? 0;
+      return playCount < venue.maxSongRepeatsPerHour;
+    });
+  }
 
   // Count unique voters across all requests (a user may vote on multiple songs)
   const allVoterIds = new Set(requests.flatMap((r) => r.votes.map((_, i) => `${r.id}-${i}`)));
@@ -213,8 +246,15 @@ export async function getRankedQueue(sessionId: string): Promise<ScoredRequest[]
     artist: req.song.artist,
     score: calculateRequestScore(req, session.currentEnergyLevel, totalVoters),
     voteCount: req.votes.length,
+    isBoosted: req.isBoosted,
+    boostAmount: req.boostAmount,
+    userId: req.userId,
   }));
 
   scored.sort((a, b) => b.score - a.score);
+
+  // Cache the result
+  setCachedQueue(sessionId, scored);
+
   return scored;
 }

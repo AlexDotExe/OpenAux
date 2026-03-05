@@ -5,6 +5,7 @@
 
 import { castVote, recalculateRequestVoteWeight } from '../db/votes';
 import { findRequestById } from '../db/requests';
+import { invalidateQueueCache } from './queueCache';
 
 export interface VoteResult {
   requestId: string;
@@ -26,6 +27,9 @@ export async function submitVote(
 
   await castVote({ requestId, userId, value, weight: influenceWeight });
   const newVoteWeight = await recalculateRequestVoteWeight(requestId);
+
+  // Invalidate queue cache since votes affect ranking
+  invalidateQueueCache(request.sessionId);
 
   return { requestId, newVoteWeight, userVote: value };
 }

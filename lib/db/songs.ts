@@ -13,15 +13,26 @@ export async function findSongBySpotifyId(spotifyId: string): Promise<Song | nul
   return prisma.song.findUnique({ where: { spotifyId } });
 }
 
+export async function findSongByYoutubeId(youtubeId: string): Promise<Song | null> {
+  return prisma.song.findUnique({ where: { youtubeId } });
+}
+
 export async function findOrCreateSong(data: {
   spotifyId?: string;
+  youtubeId?: string;
   title: string;
   artist: string;
+  albumArtUrl?: string;
+  durationMs?: number;
   bpm?: number;
   genreTags?: string[];
 }): Promise<Song> {
   if (data.spotifyId) {
     const existing = await findSongBySpotifyId(data.spotifyId);
+    if (existing) return existing;
+  }
+  if (data.youtubeId) {
+    const existing = await findSongByYoutubeId(data.youtubeId);
     if (existing) return existing;
   }
   return prisma.song.create({ data });

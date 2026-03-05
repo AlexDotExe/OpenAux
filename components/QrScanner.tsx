@@ -96,7 +96,7 @@ export function QrScanner() {
       {!scanning ? (
         <button
           onClick={startScanner}
-          className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold px-8 py-3 rounded-xl transition-colors"
+          className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-3 rounded-xl transition-colors"
         >
           <span>📷</span> Scan QR Code
         </button>
@@ -109,7 +109,7 @@ export function QrScanner() {
             muted
           />
           <canvas ref={canvasRef} className="hidden" />
-          <div className="absolute inset-0 border-4 border-purple-500 rounded-xl pointer-events-none" />
+          <div className="absolute inset-0 border-4 border-green-500 rounded-xl pointer-events-none" />
           <button
             onClick={stopScanner}
             className="mt-3 w-full text-sm text-gray-400 hover:text-white transition-colors"

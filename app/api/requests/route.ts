@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRequest, checkDuplicateRequest } from '@/lib/db/requests';
+import { createRequest, checkDuplicateRequest, countUserRequestsInSession, findActiveRequests } from '@/lib/db/requests';
 import { findOrCreateSong } from '@/lib/db/songs';
 import { findSessionById } from '@/lib/db/sessions';
+import { findVenueById } from '@/lib/db/venues';
+import { calculateSmartSettings } from '@/lib/services/smartMonetization';
+import { invalidateQueueCache } from '@/lib/services/queueCache';
 
 /**
  * POST /api/requests
@@ -10,7 +13,7 @@ import { findSessionById } from '@/lib/db/sessions';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { sessionId, userId, title, artist, spotifyId, bpm, genreTags } = body;
+    const { sessionId, userId, title, artist, spotifyId, youtubeId, albumArtUrl, durationMs, bpm, genreTags } = body;
 
     if (!sessionId || !userId || !title || !artist) {
       return NextResponse.json(
@@ -24,11 +27,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Session not found or not active' }, { status: 404 });
     }
 
+    // Check user's pending request limit using effective settings
+    const venue = await findVenueById(session.venueId);
+    if (venue) {
+      let maxSongsPerUser: number;
+
+      if (venue.smartMonetizationEnabled) {
+        // Calculate smart settings based on user count + simulated users
+        const requests = await findActiveRequests(sessionId);
+        const uniqueUsers = new Set(requests.map(r => r.userId));
+        const realUserCount = uniqueUsers.size;
+        const totalUserCount = realUserCount + session.simulatedUserCount;
+
+        const smartSettings = calculateSmartSettings(totalUserCount);
+        maxSongsPerUser = smartSettings.maxSongsPerUser;
+      } else {
+        // Use manual settings from venue
+        maxSongsPerUser = venue.maxSongsPerUser;
+      }
+
+      if (maxSongsPerUser > 0) {
+        const userRequestCount = await countUserRequestsInSession(userId, sessionId);
+        if (userRequestCount >= maxSongsPerUser) {
+          return NextResponse.json(
+            { error: `You have reached the maximum of ${maxSongsPerUser} pending songs` },
+            { status: 429 },
+          );
+        }
+      }
+    }
+
     // Find or create the song in our catalog
     const song = await findOrCreateSong({
       spotifyId,
+      youtubeId,
       title,
       artist,
+      albumArtUrl,
+      durationMs,
       bpm,
       genreTags: genreTags ?? [],
     });
@@ -43,7 +79,14 @@ export async function POST(req: NextRequest) {
     }
 
     const request = await createRequest({ sessionId, songId: song.id, userId });
-    return NextResponse.json(request, { status: 201 });
+
+    // Invalidate queue cache and return updated queue so UI updates immediately
+    invalidateQueueCache(sessionId);
+
+    const { getRankedQueue } = await import('@/lib/services/virtualDjEngine');
+    const queue = await getRankedQueue(sessionId, true); // skipCache = true
+
+    return NextResponse.json({ request, queue }, { status: 201 });
   } catch (error) {
     console.error('[POST /api/requests]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
