@@ -182,8 +182,10 @@ export async function selectNextSong(
 
   const genreProfile = (venue?.genreProfile ?? {}) as { primary?: string; secondary?: string[] };
 
+  // When suggestion mode is enabled, only include APPROVED requests in the ranked queue.
+  // PENDING requests are held for admin review and not visible to other users.
   let eligible = filterEligibleRequests(
-    requests,
+    venue?.suggestionModeEnabled ? requests.filter(r => r.status === 'APPROVED') : requests,
     new Set(recentlyPlayedIds),
     new Set(blacklistedIds),
     genreProfile,
@@ -257,8 +259,9 @@ export async function getRankedQueue(sessionId: string, skipCache = false): Prom
 
   const genreProfile = (venue?.genreProfile ?? {}) as { primary?: string; secondary?: string[] };
 
+  // When suggestion mode is enabled, only APPROVED requests appear in the ranked queue.
   let eligible = filterEligibleRequests(
-    requests,
+    venue?.suggestionModeEnabled ? requests.filter(r => r.status === 'APPROVED') : requests,
     new Set(recentlyPlayedIds),
     new Set(blacklistedIds),
     genreProfile,

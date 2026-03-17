@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useSessionStore } from '@/lib/store/useSessionStore';
@@ -9,6 +9,14 @@ import { SongQueue } from '@/components/SongQueue';
 import { NowPlayingUser } from '@/components/NowPlayingUser';
 import { SessionExpiryWarning } from '@/components/SessionExpiryWarning';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/lib/constants';
+
+interface PendingSuggestion {
+  requestId: string;
+  title: string;
+  artist: string;
+  userId: string;
+  createdAt: string;
+}
 
 interface SessionData {
   session: {
@@ -34,6 +42,8 @@ interface SessionData {
     expiresAt: string;
     isExpired: boolean;
   } | null;
+  suggestionModeEnabled?: boolean;
+  pendingSuggestions?: PendingSuggestion[];
 }
 
 export default function SessionPage() {
@@ -51,6 +61,11 @@ export default function SessionPage() {
   const [djNameSaving, setDjNameSaving] = useState(false);
   const [djNameSaved, setDjNameSaved] = useState(false);
   const [nowPlayingRemainingMs, setNowPlayingRemainingMs] = useState<number>(0);
+  // Track recently approved/rejected suggestions for user notifications
+  const [approvedNotifications, setApprovedNotifications] = useState<{ title: string; artist: string }[]>([]);
+  const [rejectedNotifications, setRejectedNotifications] = useState<{ title: string; artist: string }[]>([]);
+  // Map of requestId -> song info for previously seen pending suggestions (owned by this user)
+  const prevUserPendingRef = useRef<Map<string, { title: string; artist: string }>>(new Map());
 
   const loadEffectiveSettings = useCallback(async (sessionId: string) => {
     try {
@@ -93,6 +108,54 @@ export default function SessionPage() {
     // Load effective settings (smart or manual)
     await loadEffectiveSettings(params.sessionId);
   }, [params.sessionId, setQueue, loadEffectiveSettings]);
+
+  // Detect approved/rejected suggestions for this user by comparing previous pending list
+  const currentUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentUserIdRef.current = userId ?? null;
+  }, [userId]);
+
+  useEffect(() => {
+    if (!sessionData?.suggestionModeEnabled || !currentUserIdRef.current) return;
+
+    const currentPending = sessionData.pendingSuggestions ?? [];
+    const currentPendingMap = new Map(
+      currentPending
+        .filter(s => s.userId === currentUserIdRef.current)
+        .map(s => [s.requestId, { title: s.title, artist: s.artist }])
+    );
+
+    const approvedQueue = sessionData.queue ?? [];
+    const queueRequestIds = new Set(approvedQueue.map(q => q.requestId));
+
+    // Check what changed since last poll
+    const prevPending = prevUserPendingRef.current;
+    const newlyApproved: { title: string; artist: string }[] = [];
+    const newlyRejected: { title: string; artist: string }[] = [];
+
+    prevPending.forEach((info, requestId) => {
+      if (!currentPendingMap.has(requestId)) {
+        // Was pending, now gone — either approved (in queue) or rejected (not in queue)
+        if (queueRequestIds.has(requestId)) {
+          newlyApproved.push(info);
+        } else {
+          newlyRejected.push(info);
+        }
+      }
+    });
+
+    if (newlyApproved.length > 0) {
+      setApprovedNotifications(prev => [...prev, ...newlyApproved]);
+      setTimeout(() => setApprovedNotifications(prev => prev.filter((_, i) => i >= newlyApproved.length)), 5000);
+    }
+    if (newlyRejected.length > 0) {
+      setRejectedNotifications(prev => [...prev, ...newlyRejected]);
+      setTimeout(() => setRejectedNotifications(prev => prev.filter((_, i) => i >= newlyRejected.length)), 5000);
+    }
+
+    // Update ref with current user's pending suggestions
+    prevUserPendingRef.current = currentPendingMap;
+  }, [sessionData]);
 
   useEffect(() => {
     const fp = initDevice();
@@ -185,6 +248,10 @@ export default function SessionPage() {
   }
 
   const { session } = sessionData;
+  const suggestionModeEnabled = sessionData.suggestionModeEnabled ?? false;
+  const userPendingSuggestions = (sessionData.pendingSuggestions ?? []).filter(
+    s => s.userId === userId
+  );
 
   return (
     <main className="min-h-screen bg-gray-950 text-white pb-24">
@@ -234,11 +301,53 @@ export default function SessionPage() {
           </div>
         </div>
 
+        {/* Suggestion mode banner */}
+        {suggestionModeEnabled && (
+          <div className="bg-purple-900/30 border border-purple-700 rounded-xl p-3">
+            <p className="text-sm text-purple-300 font-semibold">🎵 Suggestion Mode Active</p>
+            <p className="text-xs text-purple-400 mt-1">
+              Your requests go to the venue for approval before entering the queue.
+            </p>
+          </div>
+        )}
+
+        {/* Approval/Rejection notifications */}
+        {approvedNotifications.map((n, i) => (
+          <div key={i} className="bg-green-900/30 border border-green-700 rounded-xl p-3 animate-pulse">
+            <p className="text-sm text-green-300">
+              ✅ Your suggestion &ldquo;{n.title}&rdquo; was approved and added to the queue!
+            </p>
+          </div>
+        ))}
+        {rejectedNotifications.map((n, i) => (
+          <div key={i} className="bg-red-900/30 border border-red-700 rounded-xl p-3">
+            <p className="text-sm text-red-300">
+              ❌ Your suggestion &ldquo;{n.title}&rdquo; was not approved.
+            </p>
+          </div>
+        ))}
+
         {/* Now Playing */}
         <NowPlayingUser sessionId={session.id} onPlaybackUpdate={setNowPlayingRemainingMs} />
 
         {/* Song Request Form */}
         <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />
+
+        {/* User's pending suggestions (suggestion mode only) */}
+        {suggestionModeEnabled && userPendingSuggestions.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="font-semibold text-purple-300">⏳ Awaiting Approval</h2>
+            {userPendingSuggestions.map(s => (
+              <div key={s.requestId} className="bg-purple-900/20 border border-purple-700 rounded-xl p-3 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{s.title}</p>
+                  <p className="text-gray-400 text-xs truncate">{s.artist}</p>
+                </div>
+                <span className="text-xs text-purple-400 shrink-0">Pending…</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Song Queue */}
         <SongQueue

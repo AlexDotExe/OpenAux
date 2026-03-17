@@ -99,3 +99,19 @@ export async function boostRequest(
     },
   });
 }
+
+export type SuggestionWithDetails = SongRequest & {
+  song: { id: string; title: string; artist: string; albumArtUrl: string | null };
+  user: { id: string; displayName: string | null };
+};
+
+export async function findPendingSuggestions(sessionId: string): Promise<SuggestionWithDetails[]> {
+  return prisma.songRequest.findMany({
+    where: { sessionId, status: 'PENDING' },
+    include: {
+      song: { select: { id: true, title: true, artist: true, albumArtUrl: true } },
+      user: { select: { id: true, displayName: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+  }) as Promise<SuggestionWithDetails[]>;
+}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { NowPlaying } from './NowPlaying';
+import type { PendingSuggestion } from '@/app/admin/[venueId]/page';
 
 interface SpotifyDevice {
   id: string;
@@ -47,6 +48,8 @@ interface Props {
   setMonetizationEnabled: (val: boolean) => void;
   smartMonetizationEnabled: boolean;
   setSmartMonetizationEnabled: (val: boolean) => void;
+  suggestionModeEnabled: boolean;
+  setSuggestionModeEnabled: (val: boolean) => void;
   onSaveSettings: () => void;
   settingsSaveStatus: string | null;
   // Active Users
@@ -66,6 +69,11 @@ interface Props {
   onDelete: (requestId: string) => void;
   onSkip: (requestId: string) => void;
   onBlacklist: (songId: string) => void;
+  // Pending Suggestions
+  pendingSuggestions: PendingSuggestion[];
+  onApproveSuggestion: (requestId: string) => void;
+  onRejectSuggestion: (requestId: string) => void;
+  onBulkAction: (action: 'approve' | 'reject', requestIds: string[]) => void;
 }
 
 export function AdminControlPanel({
@@ -91,6 +99,8 @@ export function AdminControlPanel({
   setMonetizationEnabled,
   smartMonetizationEnabled,
   setSmartMonetizationEnabled,
+  suggestionModeEnabled,
+  setSuggestionModeEnabled,
   onSaveSettings,
   settingsSaveStatus,
   userCount,
@@ -104,6 +114,10 @@ export function AdminControlPanel({
   onDelete,
   onSkip,
   onBlacklist,
+  pendingSuggestions,
+  onApproveSuggestion,
+  onRejectSuggestion,
+  onBulkAction,
 }: Props) {
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
@@ -311,6 +325,28 @@ export function AdminControlPanel({
             </p>
           </div>
 
+          {/* Suggestion Mode Toggle */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium">Suggestion Mode</label>
+              <button
+                onClick={() => setSuggestionModeEnabled(!suggestionModeEnabled)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  suggestionModeEnabled ? 'bg-purple-600' : 'bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                    suggestionModeEnabled ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              Crowd requests go to a pending list — you approve before they enter the queue
+            </p>
+          </div>
+
           {/* Manual Controls - Only show when Smart Monetization is OFF */}
           {!smartMonetizationEnabled && (
             <>
@@ -429,6 +465,74 @@ export function AdminControlPanel({
                 <p className="text-gray-300">🎵 Max songs/user: {smartSettings.maxSongsPerUser}</p>
                 <p className="text-gray-300">🔁 Max repeats/hour: {smartSettings.maxSongRepeatsPerHour}</p>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pending Suggestions Section */}
+      {activeSession && suggestionModeEnabled && (
+        <div className="space-y-3 border-t border-gray-800 pt-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-400">
+              Pending Suggestions
+              {pendingSuggestions.length > 0 && (
+                <span className="ml-2 bg-purple-700 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {pendingSuggestions.length}
+                </span>
+              )}
+            </h3>
+            {pendingSuggestions.length > 1 && (
+              <div className="flex gap-1">
+                <button
+                  onClick={() => onBulkAction('approve', pendingSuggestions.map(s => s.requestId))}
+                  disabled={loading}
+                  className="text-xs bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white px-2 py-1 rounded transition-colors"
+                >
+                  All ✓
+                </button>
+                <button
+                  onClick={() => onBulkAction('reject', pendingSuggestions.map(s => s.requestId))}
+                  disabled={loading}
+                  className="text-xs bg-red-800 hover:bg-red-700 disabled:opacity-40 text-white px-2 py-1 rounded transition-colors"
+                >
+                  All ✗
+                </button>
+              </div>
+            )}
+          </div>
+
+          {pendingSuggestions.length === 0 ? (
+            <p className="text-gray-500 text-xs">No pending suggestions.</p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {pendingSuggestions.map(suggestion => (
+                <div key={suggestion.requestId} className="flex items-center gap-2 bg-gray-800 rounded-lg p-2 text-xs">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{suggestion.title}</p>
+                    <p className="text-gray-400 truncate">{suggestion.artist}</p>
+                    {suggestion.displayName && (
+                      <p className="text-gray-500 truncate">by {suggestion.displayName}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => onApproveSuggestion(suggestion.requestId)}
+                    disabled={loading}
+                    className="bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white px-2 py-1 rounded transition-colors shrink-0"
+                    title="Approve"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => onRejectSuggestion(suggestion.requestId)}
+                    disabled={loading}
+                    className="bg-red-800 hover:bg-red-700 disabled:opacity-40 text-white px-2 py-1 rounded transition-colors shrink-0"
+                    title="Reject"
+                  >
+                    ✗
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
