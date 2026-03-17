@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { findSessionById } from '@/lib/db/sessions';
 import { getRankedQueue } from '@/lib/services/virtualDjEngine';
 import { findVenueById } from '@/lib/db/venues';
+import { getUserSession } from '@/lib/db/userSessions';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   try {
@@ -12,11 +13,14 @@ export async function GET(
     const session = await findSessionById(sessionId);
     if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
 
+    const userId = req.nextUrl.searchParams.get('userId');
+
     // getRankedQueue internally fetches venue, so we can fetch both in parallel
     // but we still need venue name for response
-    const [queue, venue] = await Promise.all([
+    const [queue, venue, userSession] = await Promise.all([
       getRankedQueue(sessionId),
       findVenueById(session.venueId),
+      userId ? getUserSession(userId, sessionId) : Promise.resolve(null),
     ]);
 
     // Note: Removed playback history from polling endpoint
@@ -25,7 +29,10 @@ export async function GET(
     return NextResponse.json({
       session,
       queue,
-      venueName: venue?.name || 'Unknown Venue'
+      venueName: venue?.name || 'Unknown Venue',
+      userSession: userSession
+        ? { expiresAt: userSession.expiresAt.toISOString(), isExpired: userSession.isExpired }
+        : null,
     });
   } catch (error) {
     console.error('[GET /api/sessions/:sessionId]', error);

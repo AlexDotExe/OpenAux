@@ -5,6 +5,7 @@ import { findSessionById } from '@/lib/db/sessions';
 import { findVenueById } from '@/lib/db/venues';
 import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
+import { updateUserSessionActivity } from '@/lib/db/userSessions';
 
 /**
  * POST /api/requests
@@ -79,6 +80,9 @@ export async function POST(req: NextRequest) {
     }
 
     const request = await createRequest({ sessionId, songId: song.id, userId });
+
+    // Reset the session expiry timer for this user
+    await updateUserSessionActivity(userId, sessionId);
 
     // Invalidate queue cache and return updated queue so UI updates immediately
     invalidateQueueCache(sessionId);

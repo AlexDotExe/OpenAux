@@ -7,6 +7,7 @@ import { useSessionStore } from '@/lib/store/useSessionStore';
 import { SongRequestForm } from '@/components/SongRequestForm';
 import { SongQueue } from '@/components/SongQueue';
 import { NowPlayingUser } from '@/components/NowPlayingUser';
+import { SessionExpiryWarning } from '@/components/SessionExpiryWarning';
 
 interface SessionData {
   session: {
@@ -27,6 +28,10 @@ interface SessionData {
     userId?: string;
   }>;
   venueName?: string;
+  userSession?: {
+    expiresAt: string;
+    isExpired: boolean;
+  } | null;
 }
 
 export default function SessionPage() {
@@ -38,6 +43,8 @@ export default function SessionPage() {
   const [boostPrice, setBoostPrice] = useState(5.0);
   const [monetizationEnabled, setMonetizationEnabled] = useState(false);
   const [userCount, setUserCount] = useState(0);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
 
   const loadEffectiveSettings = useCallback(async (sessionId: string) => {
     try {
@@ -54,9 +61,20 @@ export default function SessionPage() {
   }, []);
 
   const loadSession = useCallback(async (updatedQueue?: any[]) => {
-    const res = await fetch(`/api/sessions/${params.sessionId}`);
+    const currentUserId = useSessionStore.getState().userId;
+    const url = currentUserId
+      ? `/api/sessions/${params.sessionId}?userId=${encodeURIComponent(currentUserId)}`
+      : `/api/sessions/${params.sessionId}`;
+
+    const res = await fetch(url);
     const data: SessionData = await res.json();
     setSessionData(data);
+
+    // Update expiry state from server
+    if (data.userSession) {
+      setExpiresAt(data.userSession.expiresAt);
+      setIsExpired(data.userSession.isExpired);
+    }
 
     // Use the provided queue if available, otherwise use fetched queue
     const queueToUse = updatedQueue ?? data.queue;
@@ -72,14 +90,27 @@ export default function SessionPage() {
 
   useEffect(() => {
     const fp = initDevice();
-    // Ensure user is registered
+    // Ensure user is registered, then join the session
     fetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceFingerprint: fp }),
     })
       .then((r) => r.json())
-      .then((user) => setUser(user.id, user.influenceWeight, user.reputationScore))
+      .then((user) => {
+        setUser(user.id, user.influenceWeight, user.reputationScore);
+        // Join (or rejoin) the user session to establish/reset the expiry timer
+        return fetch(`/api/sessions/${params.sessionId}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.id }),
+        });
+      })
+      .then((r) => r.json())
+      .then((userSession) => {
+        setExpiresAt(userSession.expiresAt);
+        setIsExpired(userSession.isExpired);
+      })
       .catch(console.error);
 
     loadSession()
@@ -100,7 +131,7 @@ export default function SessionPage() {
     const res = await fetch('/api/votes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId, deviceFingerprint, value }),
+      body: JSON.stringify({ requestId, sessionId: params.sessionId, deviceFingerprint, value }),
     });
     if (res.ok) {
       useSessionStore.getState().updateUserVote(requestId, value);
@@ -128,6 +159,9 @@ export default function SessionPage() {
 
   return (
     <main className="min-h-screen bg-gray-950 text-white pb-24">
+      {/* Session Expired / Expiry Warning */}
+      <SessionExpiryWarning expiresAt={expiresAt} isExpired={isExpired} />
+
       {/* Header */}
       <div className="sticky top-0 bg-gray-950/90 backdrop-blur border-b border-gray-800 p-4">
         <div className="max-w-md mx-auto flex items-center justify-between">
