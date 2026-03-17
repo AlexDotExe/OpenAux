@@ -1,6 +1,9 @@
 /**
  * API Route: Boost Song Request
  * POST /api/requests/[requestId]/boost - Boost a song request to the top of the queue
+ *
+ * For free boosts (boostPrice === 0): pass { userId }
+ * For paid boosts: pass { userId, stripePaymentIntentId } after completing Stripe payment
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,6 +13,8 @@ import { findVenueById } from '@/lib/db/venues';
 import { getRankedQueue } from '@/lib/services/virtualDjEngine';
 import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
+import { stripe } from '@/lib/stripe';
+import { findPaymentByStripeId, updatePaymentStatus } from '@/lib/db/payments';
 
 interface RouteContext {
   params: Promise<{ requestId: string }>;
@@ -19,7 +24,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { requestId } = await context.params;
     const body = await req.json();
-    const { userId } = body;
+    const { userId, stripePaymentIntentId } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'userId is required' }, { status: 400 });
@@ -91,8 +96,41 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    // Boost the request (fake payment for MVP)
-    // Note: boostPrice can be 0 (free) or > 0 (paid)
+    // For paid boosts, verify the Stripe payment intent is succeeded
+    if (boostPrice > 0) {
+      if (!stripePaymentIntentId) {
+        return NextResponse.json(
+          { error: 'stripePaymentIntentId is required for paid boosts' },
+          { status: 400 },
+        );
+      }
+
+      // Verify payment intent with Stripe
+      const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+
+      if (paymentIntent.status !== 'succeeded') {
+        return NextResponse.json(
+          { error: 'Payment has not been completed' },
+          { status: 402 },
+        );
+      }
+
+      // Verify the payment intent is for this request
+      if (paymentIntent.metadata?.requestId !== requestId) {
+        return NextResponse.json(
+          { error: 'Payment intent does not match this request' },
+          { status: 400 },
+        );
+      }
+
+      // Update the payment record to COMPLETED
+      const payment = await findPaymentByStripeId(stripePaymentIntentId);
+      if (payment && payment.status !== 'COMPLETED') {
+        await updatePaymentStatus(payment.id, 'COMPLETED', new Date());
+      }
+    }
+
+    // Boost the request (boostPrice can be 0 for free or > 0 for paid)
     const updated = await boostRequest(requestId, boostPrice);
 
     // Invalidate cache and get fresh queue

@@ -2,6 +2,18 @@
 
 import { useState } from 'react';
 import { useSessionStore } from '@/lib/store/useSessionStore';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
+
+// Lazy-load Stripe to avoid blocking initial render
+const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+  : null;
 
 interface Song {
   requestId: string;
@@ -25,6 +37,99 @@ interface Props {
   onBoostSuccess?: () => void;
 }
 
+// Inner payment form rendered inside <Elements>
+function StripeBoostForm({
+  requestId,
+  userId,
+  boostPrice,
+  onSuccess,
+  onCancel,
+}: {
+  requestId: string;
+  userId: string;
+  boostPrice: number;
+  onSuccess: () => void;
+  onCancel: () => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [status, setStatus] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setProcessing(true);
+    setStatus(null);
+
+    // Confirm the payment using the client secret already loaded into <Elements>
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: 'if_required',
+    });
+
+    if (error) {
+      setStatus(`Payment failed: ${error.message}`);
+      setProcessing(false);
+      return;
+    }
+
+    if (paymentIntent?.status !== 'succeeded') {
+      setStatus('Payment did not complete. Please try again.');
+      setProcessing(false);
+      return;
+    }
+
+    // Tell the server to confirm the boost
+    const res = await fetch(`/api/requests/${requestId}/boost`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, stripePaymentIntentId: paymentIntent.id }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      setStatus('✅ Song boosted to the top!');
+      setTimeout(() => {
+        onSuccess();
+      }, 1500);
+    } else {
+      setStatus(`Error: ${data.error}`);
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      {status && (
+        <p className={status.startsWith('✅') ? 'text-green-400 text-sm' : 'text-red-400 text-sm'}>
+          {status}
+        </p>
+      )}
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={processing}
+          className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!stripe || processing}
+          className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-40 text-black py-2 rounded-lg font-semibold"
+        >
+          {processing ? 'Processing…' : `Pay $${boostPrice.toFixed(2)}`}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, monetizationEnabled = false, onBoostSuccess }: Props) {
   const { queue: storeQueue } = useSessionStore();
   const displayQueue = queue.length > 0 ? queue : storeQueue;
@@ -32,13 +137,45 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
   const [showBoostModal, setShowBoostModal] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [boostStatus, setBoostStatus] = useState<string | null>(null);
+  // Stripe payment intent client secret (only for paid boosts)
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [loadingIntent, setLoadingIntent] = useState(false);
 
-  const handleBoostClick = (requestId: string) => {
+  const handleBoostClick = async (requestId: string) => {
     setSelectedRequestId(requestId);
-    setShowBoostModal(true);
+    setBoostStatus(null);
+    setClientSecret(null);
+
+    if (boostPrice > 0 && stripePromise) {
+      // Paid boost: create a payment intent first
+      setLoadingIntent(true);
+      setShowBoostModal(true);
+
+      try {
+        const res = await fetch('/api/payments/create-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestId, userId: currentUserId }),
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          setClientSecret(data.clientSecret);
+        } else {
+          setBoostStatus(`Error: ${data.error}`);
+        }
+      } catch {
+        setBoostStatus('Failed to initialize payment. Please try again.');
+      } finally {
+        setLoadingIntent(false);
+      }
+    } else {
+      // Free boost: show simple confirmation
+      setShowBoostModal(true);
+    }
   };
 
-  const confirmBoost = async () => {
+  const confirmFreeBoost = async () => {
     if (!selectedRequestId || !currentUserId) return;
 
     setBoostingRequestId(selectedRequestId);
@@ -63,11 +200,18 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       } else {
         setBoostStatus(`Error: ${data.error}`);
       }
-    } catch (err) {
+    } catch {
       setBoostStatus('Failed to boost song. Please try again.');
     } finally {
       setBoostingRequestId(null);
     }
+  };
+
+  const closeModal = () => {
+    setShowBoostModal(false);
+    setClientSecret(null);
+    setBoostStatus(null);
+    setBoostingRequestId(null);
   };
 
   if (displayQueue.length === 0) {
@@ -204,42 +348,84 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
         ))}
       </div>
 
-      {/* Boost Confirmation Modal */}
+      {/* Boost Modal */}
       {showBoostModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-gray-900 rounded-xl p-6 max-w-sm w-full space-y-4">
             <h3 className="text-xl font-bold">⚡ Boost Your Song</h3>
-            {!boostStatus ? (
-              <>
-                <p className="text-gray-400">
-                  Boost this song to the top of the queue for ${boostPrice.toFixed(2)}?
-                </p>
-                <p className="text-sm text-yellow-500">
-                  Note: This is a fake payment for MVP demonstration
-                </p>
-                <div className="flex gap-3">
+
+            {/* Paid boost: Stripe payment form */}
+            {boostPrice > 0 && stripePromise ? (
+              loadingIntent ? (
+                <p className="text-gray-400 animate-pulse text-center py-4">Loading payment form…</p>
+              ) : clientSecret ? (
+                <Elements
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret,
+                    appearance: { theme: 'night', labels: 'floating' },
+                  }}
+                >
+                  <p className="text-gray-400 text-sm">
+                    Boost this song to the top of the queue for{' '}
+                    <span className="text-yellow-400 font-semibold">${boostPrice.toFixed(2)}</span>.
+                  </p>
+                  <StripeBoostForm
+                    requestId={selectedRequestId!}
+                    userId={currentUserId!}
+                    boostPrice={boostPrice}
+                    onSuccess={() => {
+                      closeModal();
+                      if (onBoostSuccess) onBoostSuccess();
+                    }}
+                    onCancel={closeModal}
+                  />
+                </Elements>
+              ) : (
+                // Error loading intent
+                <div className="space-y-4">
+                  {boostStatus && (
+                    <p className="text-red-400 text-sm">{boostStatus}</p>
+                  )}
                   <button
-                    onClick={() => setShowBoostModal(false)}
-                    disabled={!!boostingRequestId}
-                    className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                    onClick={closeModal}
+                    className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmBoost}
-                    disabled={!!boostingRequestId}
-                    className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-40 text-black py-2 rounded-lg font-semibold"
-                  >
-                    {boostingRequestId ? 'Boosting...' : 'Confirm Boost'}
+                    Close
                   </button>
                 </div>
-              </>
+              )
             ) : (
-              <div className="text-center">
-                <p className={boostStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'}>
-                  {boostStatus}
-                </p>
-              </div>
+              // Free boost: simple confirmation
+              !boostStatus ? (
+                <>
+                  <p className="text-gray-400">
+                    Boost this song to the top of the queue for free?
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={closeModal}
+                      disabled={!!boostingRequestId}
+                      className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmFreeBoost}
+                      disabled={!!boostingRequestId}
+                      className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                    >
+                      {boostingRequestId ? 'Boosting...' : 'Boost to Top'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center">
+                  <p className={boostStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'}>
+                    {boostStatus}
+                  </p>
+                </div>
+              )
             )}
           </div>
         </div>

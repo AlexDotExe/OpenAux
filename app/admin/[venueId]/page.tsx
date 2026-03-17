@@ -50,6 +50,16 @@ export default function AdminPage() {
   const [smartMonetizationEnabled, setSmartMonetizationEnabled] = useState(false);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<string | null>(null);
   const [simulatedUsers, setSimulatedUsers] = useState(0);
+  const [payments, setPayments] = useState<Array<{
+    id: string;
+    amount: number;
+    type: string;
+    status: string;
+    venueShareAmount: number | null;
+    platformShareAmount: number | null;
+    createdAt: string;
+    completedAt: string | null;
+  }>>([]);
 
   const updateSimulatedUsers = async (count: number) => {
     if (!venueData?.activeSession) return;
@@ -106,6 +116,19 @@ export default function AdminPage() {
     }
   }, [params.venueId]);
 
+  const loadPayments = useCallback(async () => {
+    if (!params.venueId) return;
+    try {
+      const res = await fetch(`/api/payments/history?venueId=${params.venueId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPayments(data.payments ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to load payment history:', err);
+    }
+  }, [params.venueId]);
+
   const load = useCallback(async () => {
     if (!params.venueId) return;
     const res = await fetch(`/api/venues/${params.venueId}`);
@@ -127,8 +150,9 @@ export default function AdminPage() {
     if (authed) {
       load();
       loadSettings(); // Load settings only once on initial auth
+      loadPayments();
     }
-  }, [authed, load, loadSettings]);
+  }, [authed, load, loadSettings, loadPayments]);
 
   useEffect(() => {
     if (!authed) return;
@@ -366,6 +390,66 @@ export default function AdminPage() {
           onSkip={handleSkip}
           onBlacklist={handleBlacklist}
         />
+
+        {/* Payment History */}
+        {payments.length > 0 && (
+          <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+            <h2 className="font-semibold text-lg">💳 Payment History</h2>
+            {/* Revenue Summary */}
+            {(() => {
+              const completed = payments.filter(p => p.status === 'COMPLETED');
+              const totalRevenue = completed.reduce((sum, p) => sum + p.amount, 0);
+              const venueRevenue = completed.reduce((sum, p) => sum + (p.venueShareAmount ?? 0), 0);
+              const platformRevenue = completed.reduce((sum, p) => sum + (p.platformShareAmount ?? 0), 0);
+              return (
+                <div className="grid grid-cols-3 gap-2 bg-gray-800 rounded-lg p-3 text-center">
+                  <div>
+                    <p className="text-xs text-gray-400">Total</p>
+                    <p className="font-semibold text-white">${totalRevenue.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Venue Share</p>
+                    <p className="font-semibold text-green-400">${venueRevenue.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Platform Share</p>
+                    <p className="font-semibold text-blue-400">${platformRevenue.toFixed(2)}</p>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Individual payments */}
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {payments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="flex items-center justify-between text-sm bg-gray-800 rounded-lg px-3 py-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${
+                      payment.status === 'COMPLETED' ? 'bg-green-500' :
+                      payment.status === 'FAILED' ? 'bg-red-500' :
+                      'bg-yellow-500'
+                    }`} />
+                    <span className="text-gray-300 capitalize">{payment.type.toLowerCase()}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-400 text-xs">
+                      {new Date(payment.createdAt).toLocaleDateString()}
+                    </span>
+                    <span className={`font-semibold ${
+                      payment.status === 'COMPLETED' ? 'text-green-400' :
+                      payment.status === 'FAILED' ? 'text-red-400' :
+                      'text-yellow-400'
+                    }`}>
+                      ${payment.amount.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
