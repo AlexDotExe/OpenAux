@@ -7,7 +7,7 @@
  * - Progressive auth (phone/OAuth) can be added without schema changes
  */
 
-import { findOrCreateUser, updateUserReputation } from '../db/users';
+import { findOrCreateUser, updateUserReputation, updateUserDisplayName } from '../db/users';
 import { User } from '@prisma/client';
 
 export async function getOrCreateUserByFingerprint(deviceFingerprint: string): Promise<User> {
@@ -42,4 +42,12 @@ export async function recalculateReputation(userId: string): Promise<User> {
   }
 
   return updateUserReputation(userId, newScore);
+}
+
+/**
+ * Set or update the user's DJ display name.
+ * The display name is shown in "DJ [Name] is playing..." on the now playing screen.
+ */
+export async function setDisplayName(userId: string, displayName: string): Promise<User> {
+  return updateUserDisplayName(userId, displayName);
 }

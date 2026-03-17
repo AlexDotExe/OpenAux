@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findSessionById } from '@/lib/db/sessions';
 import { getStreamingServiceForVenue } from '@/lib/services/streaming';
+import { prisma } from '@/lib/db/prisma';
 
 export async function GET(
   req: NextRequest,
@@ -27,14 +28,27 @@ export async function GET(
   // Get streaming service for the venue
   const service = await getStreamingServiceForVenue(session.venueId);
   if (!service) {
-    return NextResponse.json({ playback: null });
+    return NextResponse.json({ playback: null, requesterName: null });
   }
 
   try {
-    const playback = await service.getPlaybackState();
-    return NextResponse.json({ playback });
+    const [playback, approvedRequest] = await Promise.all([
+      service.getPlaybackState(),
+      // Find the currently playing (APPROVED) request to get the requester's name.
+      // The session flow ensures at most one APPROVED request at a time: advanceToNextSong
+      // marks the previous request as PLAYED/SKIPPED before approving the next one.
+      prisma.songRequest.findFirst({
+        where: { sessionId, status: 'APPROVED' },
+        include: { user: { select: { displayName: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const requesterName = approvedRequest?.user?.displayName ?? null;
+
+    return NextResponse.json({ playback, requesterName });
   } catch (error) {
     console.error('[GET /api/sessions/[sessionId]/playback] Error:', error);
-    return NextResponse.json({ playback: null });
+    return NextResponse.json({ playback: null, requesterName: null });
   }
 }

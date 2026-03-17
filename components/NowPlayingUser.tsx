@@ -22,6 +22,7 @@ interface NowPlayingUserProps {
 
 export function NowPlayingUser({ sessionId }: NowPlayingUserProps) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
+  const [requesterName, setRequesterName] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPlayback = async () => {
@@ -30,6 +31,7 @@ export function NowPlayingUser({ sessionId }: NowPlayingUserProps) {
         if (!res.ok) return;
         const data = await res.json();
         setPlayback(data.playback);
+        setRequesterName(data.requesterName ?? null);
       } catch (error) {
         console.error('Failed to fetch playback state:', error);
       }
@@ -57,6 +59,20 @@ export function NowPlayingUser({ sessionId }: NowPlayingUserProps) {
 
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 mb-6">
+      {requesterName && (
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-green-950/50 border border-green-700/50 rounded-lg">
+          <span className="text-lg">🎧</span>
+          <p className="text-sm font-semibold text-green-400">
+            DJ {requesterName} is playing...
+          </p>
+          <span className="ml-auto flex gap-0.5" aria-hidden="true">
+            <span className="w-1 h-3 bg-green-400 rounded-full animate-bounce [animation-delay:0ms]" />
+            <span className="w-1 h-3 bg-green-400 rounded-full animate-bounce [animation-delay:150ms]" />
+            <span className="w-1 h-3 bg-green-400 rounded-full animate-bounce [animation-delay:300ms]" />
+          </span>
+        </div>
+      )}
+
       <h3 className="text-sm font-semibold text-gray-400 mb-3">Now Playing</h3>
 
       <div className="flex gap-4">

@@ -50,3 +50,10 @@ export async function updateUserSessionLastRequest(userId: string, sessionId: st
     },
   });
 }
+
+export async function updateUserDisplayName(userId: string, displayName: string): Promise<User> {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { displayName },
+  });
+}

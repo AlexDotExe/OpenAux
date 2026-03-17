@@ -27,6 +27,7 @@ export interface SessionState {
   // User identity (anonymous, device-based)
   deviceFingerprint: string | null;
   userId: string | null;
+  displayName: string | null;
   influenceWeight: number;
   reputationScore: number;
 
@@ -42,7 +43,8 @@ export interface SessionState {
 
   // Actions
   initDevice: () => string;
-  setUser: (userId: string, influenceWeight: number, reputationScore: number) => void;
+  setUser: (userId: string, influenceWeight: number, reputationScore: number, displayName?: string | null) => void;
+  setDisplayName: (displayName: string) => void;
   setSession: (sessionId: string, venueId: string, energyLevel: number) => void;
   setQueue: (queue: Song[]) => void;
   setNowPlaying: (song: Song | null) => void;
@@ -52,6 +54,7 @@ export interface SessionState {
 export const useSessionStore = create<SessionState>((set, get) => ({
   deviceFingerprint: null,
   userId: null,
+  displayName: null,
   influenceWeight: 1.0,
   reputationScore: 1.0,
   sessionId: null,
@@ -72,8 +75,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return fp;
   },
 
-  setUser: (userId, influenceWeight, reputationScore) =>
-    set({ userId, influenceWeight, reputationScore }),
+  setUser: (userId, influenceWeight, reputationScore, displayName = null) =>
+    set({ userId, influenceWeight, reputationScore, displayName }),
+
+  setDisplayName: (displayName) => set({ displayName }),
 
   setSession: (sessionId, venueId, energyLevel) =>
     set({ sessionId, venueId, energyLevel, isActive: true }),
