@@ -78,7 +78,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       const data = await res.json();
 
       if (res.ok) {
-        setBoostStatus('Success! Your song has been boosted to the top!');
+        setBoostStatus('Success! Your song has been boosted +3 spots up the queue!');
         setTimeout(() => {
           setShowBoostModal(false);
           setBoostStatus(null);
@@ -87,7 +87,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       } else {
         setBoostStatus(`Error: ${data.error}`);
       }
-    } catch (err) {
+    } catch {
       setBoostStatus('Failed to boost song. Please try again.');
     } finally {
       setBoostingRequestId(null);
@@ -105,7 +105,6 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
 
   const canBoost = (song: Song) => {
     // Show boost button if user owns the song and it's not already boosted
-    // Even show it when price is 0 (free) - button will show "FREE Boost"
     const result = (
       currentUserId &&
       song.userId === currentUserId &&
@@ -215,7 +214,8 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
               {/* Bottom row: Boost button (full width) */}
               {canBoost(song) && (() => {
                 const currentWaitMs = calculateWaitTimeMs(displayQueue, idx, nowPlayingRemainingMs);
-                const boostedWaitMs = calculateWaitTimeMs(displayQueue, 0, nowPlayingRemainingMs);
+                const boostedIdx = Math.max(0, idx - 3);
+                const boostedWaitMs = calculateWaitTimeMs(displayQueue, boostedIdx, nowPlayingRemainingMs);
                 const savingsMs = currentWaitMs - boostedWaitMs;
                 return (
                   <div className="space-y-1">
@@ -228,7 +228,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                           : 'bg-yellow-600 hover:bg-yellow-700 text-black'
                       } disabled:opacity-40`}
                     >
-                      ⚡ {boostPrice === 0 ? 'Boost to Top' : `Boost to Top - $${boostPrice.toFixed(2)}`}
+                      ⚡ {boostPrice === 0 ? 'Priority Boost +3 Spots (Free)' : `Priority Boost +3 Spots - $${boostPrice.toFixed(2)}`}
                     </button>
                     {savingsMs > 0 && (
                       <p className="text-xs text-yellow-400 text-center">
@@ -246,17 +246,24 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       {/* Boost Confirmation Modal */}
       {showBoostModal && (() => {
         const selectedIdx = selectedRequestId ? displayQueue.findIndex(s => s.requestId === selectedRequestId) : -1;
+        const boostedIdx = Math.max(0, selectedIdx - 3);
         const savingsMs = selectedIdx > 0
-          ? calculateWaitTimeMs(displayQueue, selectedIdx, nowPlayingRemainingMs) - calculateWaitTimeMs(displayQueue, 0, nowPlayingRemainingMs)
+          ? calculateWaitTimeMs(displayQueue, selectedIdx, nowPlayingRemainingMs) - calculateWaitTimeMs(displayQueue, boostedIdx, nowPlayingRemainingMs)
           : 0;
         return (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
             <div className="bg-gray-900 rounded-xl p-6 max-w-sm w-full space-y-4">
-              <h3 className="text-xl font-bold">⚡ Boost Your Song</h3>
+              <h3 className="text-xl font-bold">⚡ Priority Boost</h3>
               {!boostStatus ? (
                 <>
                   <p className="text-gray-400">
-                    Boost this song to the top of the queue{boostPrice > 0 ? ` for $${boostPrice.toFixed(2)}` : ''}?
+                    {boostPrice === 0
+                      ? 'Boost this song up 3 spots in the queue for free?'
+                      : `Pay $${boostPrice.toFixed(2)} to move this song up 3 spots in the queue?`}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Songs with votes and a boost jump ahead of similarly-scored songs.
+                    You can only boost each song once.
                   </p>
                   {savingsMs > 0 && (
                     <p className="text-sm text-yellow-400">
@@ -264,7 +271,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                     </p>
                   )}
                   <p className="text-sm text-yellow-500">
-                    Note: This is a fake payment for MVP demonstration
+                    Note: This is a simulated payment for MVP demonstration
                   </p>
                   <div className="flex gap-3">
                     <button

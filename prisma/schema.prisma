@@ -102,7 +102,7 @@ model Venue {
   blacklist    Blacklist[]
 
   // ── Admin controls & monetization settings ──
-  defaultBoostPrice       Float   @default(5.0)    // Price to boost song (manual mode)
+  defaultBoostPrice       Float   @default(1.0)    // Price to boost song (manual mode)
   maxSongRepeatsPerHour   Int     @default(3)      // Max plays per hour for same song (manual mode)
   maxSongsPerUser         Int     @default(5)      // Max pending requests per user (manual mode)
   monetizationEnabled     Boolean @default(false)  // Toggle boost feature
