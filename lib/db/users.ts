@@ -1,5 +1,5 @@
 import { prisma } from './prisma';
-import { User } from '@prisma/client';
+import { User, UserSession } from '@prisma/client';
 
 /**
  * DB Access Layer - Users
@@ -27,5 +27,26 @@ export async function updateUserReputation(userId: string, reputationScore: numb
   return prisma.user.update({
     where: { id: userId },
     data: { reputationScore, influenceWeight },
+  });
+}
+
+const USER_SESSION_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+
+export async function findUserSession(userId: string, sessionId: string): Promise<UserSession | null> {
+  return prisma.userSession.findUnique({ where: { userId_sessionId: { userId, sessionId } } });
+}
+
+export async function updateUserSessionLastRequest(userId: string, sessionId: string): Promise<void> {
+  const now = new Date();
+  await prisma.userSession.upsert({
+    where: { userId_sessionId: { userId, sessionId } },
+    update: { lastRequestAt: now, lastActiveAt: now },
+    create: {
+      userId,
+      sessionId,
+      lastRequestAt: now,
+      lastActiveAt: now,
+      expiresAt: new Date(now.getTime() + USER_SESSION_EXPIRY_MS),
+    },
   });
 }

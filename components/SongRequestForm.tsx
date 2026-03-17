@@ -33,7 +33,44 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [cooldownEndsAt, setCooldownEndsAt] = useState<number | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start/restart the countdown whenever cooldownEndsAt changes
+  useEffect(() => {
+    if (cooldownRef.current) {
+      clearInterval(cooldownRef.current);
+      cooldownRef.current = null;
+    }
+
+    if (!cooldownEndsAt) {
+      setCooldownSeconds(0);
+      return;
+    }
+
+    const tick = () => {
+      const remaining = Math.ceil((cooldownEndsAt - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setCooldownSeconds(0);
+        clearInterval(cooldownRef.current!);
+        cooldownRef.current = null;
+      } else {
+        setCooldownSeconds(remaining);
+      }
+    };
+
+    tick();
+    cooldownRef.current = setInterval(tick, 1000);
+
+    return () => {
+      if (cooldownRef.current) {
+        clearInterval(cooldownRef.current);
+        cooldownRef.current = null;
+      }
+    };
+  }, [cooldownEndsAt]);
 
   // Debounced search
   useEffect(() => {
@@ -87,6 +124,9 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
 
     if (!res.ok) {
       setError(resData.error ?? 'Failed to submit request');
+      if (resData.cooldownRemainingSeconds) {
+        setCooldownEndsAt(Date.now() + resData.cooldownRemainingSeconds * 1000);
+      }
     } else {
       setSuccess(true);
       setQuery('');
@@ -124,9 +164,22 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
     submitRequest({ title, artist });
   };
 
+  const isCoolingDown = cooldownSeconds > 0;
+  const cooldownMinutes = Math.floor(cooldownSeconds / 60);
+  const cooldownSecs = cooldownSeconds % 60;
+  const cooldownDisplay = cooldownMinutes > 0
+    ? `${cooldownMinutes}:${String(cooldownSecs).padStart(2, '0')}`
+    : `${cooldownSecs}s`;
+
   return (
     <div className="bg-gray-900 rounded-xl p-4 space-y-3">
       <h2 className="font-semibold mb-1">🎤 Request a Song</h2>
+
+      {isCoolingDown && (
+        <div className="bg-yellow-900/40 border border-yellow-700 rounded-lg px-3 py-2 text-sm text-yellow-300">
+          ⏳ Cooldown active — next request in <span className="font-mono font-semibold">{cooldownDisplay}</span>
+        </div>
+      )}
 
       {!showManual ? (
         <>
@@ -136,20 +189,24 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
             placeholder="Search for a song..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500"
+            disabled={isCoolingDown}
+            className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
           />
 
           {/* Search results dropdown */}
-          <SongSearchResults
-            results={results}
-            onSelect={handleSelect}
-            loading={searching}
-          />
+          {!isCoolingDown && (
+            <SongSearchResults
+              results={results}
+              onSelect={handleSelect}
+              loading={searching}
+            />
+          )}
 
           {/* Manual entry fallback */}
           <button
             onClick={() => setShowManual(true)}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            disabled={isCoolingDown}
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Can&apos;t find it? Enter manually
           </button>
@@ -164,7 +221,8 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500"
+              disabled={isCoolingDown}
+              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <input
               type="text"
@@ -172,14 +230,15 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
               value={artist}
               onChange={(e) => setArtist(e.target.value)}
               required
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500"
+              disabled={isCoolingDown}
+              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button
               type="submit"
-              disabled={loading || !title || !artist}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
+              disabled={loading || !title || !artist || isCoolingDown}
+              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors disabled:cursor-not-allowed"
             >
-              {loading ? 'Submitting...' : 'Request Song'}
+              {loading ? 'Submitting...' : isCoolingDown ? `Wait ${cooldownDisplay}` : 'Request Song'}
             </button>
           </form>
           <button
