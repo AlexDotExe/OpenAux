@@ -10,17 +10,69 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  PLAYED
+  SKIPPED
+  DELETED
+}
+
+enum PlaybackSource {
+  OPENAUX_REQUEST // Song requested by a user through OpenAux
+  VENUE_SELECTED  // Song manually picked by venue admin
+  PLAYLIST        // Song from a pre-loaded venue playlist
+  SPONSOR         // Sponsor/anthem song
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentType {
+  BOOST           // Paid song boost
+  CREDIT_PURCHASE // Buying prepaid credits
+  PAYOUT          // Venue payout
+}
+
+enum CreditTransactionType {
+  PURCHASE   // User bought credits
+  BOOST_DEBIT // Credits spent on a boost
+  REFUND     // Refund for unplayed song
+}
+
+enum AdminActionType {
+  OVERRIDE_QUEUE
+  SKIP_SONG
+  DELETE_REQUEST
+  APPROVE_SUGGESTION
+  REJECT_SUGGESTION
+}
+
+// ─── Core Models ─────────────────────────────────────────────────────────────
+
 model User {
   id                String        @id @default(uuid())
   deviceFingerprint String        @unique
+  displayName       String?       // Optional DJ name shown on "DJ Alex is playing..." (#22)
   // reputationScore: derived from approval rates of submitted songs
   // Higher score = more influence weight in voting
   reputationScore   Float         @default(1.0)
   // influenceWeight is computed from reputationScore - stored for caching purposes
   influenceWeight   Float         @default(1.0)
+  // Prepaid credits balance (#12)
+  creditBalance     Float         @default(0.0)
   createdAt         DateTime      @default(now())
   requests          SongRequest[]
   votes             Vote[]
+  sessions          UserSession[]
+  creditTransactions CreditTransaction[]
+  payments          Payment[]
 
   @@index([deviceFingerprint])
 }
@@ -48,12 +100,37 @@ model Venue {
   createdAt    DateTime  @default(now())
   sessions     Session[]
   blacklist    Blacklist[]
-  // Admin controls and monetization settings
+
+  // ── Admin controls & monetization settings ──
   defaultBoostPrice       Float   @default(5.0)    // Price to boost song (manual mode)
   maxSongRepeatsPerHour   Int     @default(3)      // Max plays per hour for same song (manual mode)
   maxSongsPerUser         Int     @default(5)      // Max pending requests per user (manual mode)
   monetizationEnabled     Boolean @default(false)  // Toggle boost feature
   smartMonetizationEnabled Boolean @default(false) // Auto-adjust pricing/limits based on user count
+  revenueSharePercent     Float   @default(70.0)   // Venue's share of revenue, remainder goes to OpenAux (#11)
+
+  // ── Content blocking (#20) ──
+  blockExplicit  Boolean  @default(false)  // Block explicit/NSFW songs
+  blockedGenres  String[] // Genres that cannot be requested at this venue
+  blockedArtists String[] // Artists that cannot be requested at this venue
+
+  // ── Venue control modes (#19, #21) ──
+  suggestionModeEnabled Boolean @default(false) // Songs require admin approval before entering queue
+  crowdControlEnabled   Boolean @default(true)  // Queue driven by crowd votes (admin can override)
+
+  // ── Geographic & venue metadata (#29) ──
+  venueType String?  // e.g. "bar", "club", "restaurant", "lounge"
+  city      String?
+  region    String?  // State/province
+  latitude  Float?
+  longitude Float?
+
+  // ── Relations ──
+  sponsorSongs     SponsorSong[]
+  playlists        VenuePlaylist[]
+  adminActions     AdminAction[]
+  payments         Payment[]
+  userSnapshots    ActiveUserSnapshot[]
 
   @@index([name])
   @@index([adminUsername])
@@ -68,12 +145,15 @@ model Song {
   albumArtUrl String?
   durationMs  Int?
   bpm         Float?
+  isExplicit  Boolean       @default(false) // Explicit content flag (#20)
   // genreTags: ["hip-hop", "r&b"]
   genreTags   String[]
   createdAt   DateTime      @default(now())
   requests    SongRequest[]
   playbacks   PlaybackHistory[]
   blacklists  Blacklist[]
+  sponsorSongs SponsorSong[]
+  playlistSongs VenuePlaylistSong[]
 
   @@index([spotifyId])
   @@index([youtubeId])
@@ -81,30 +161,48 @@ model Song {
 }
 
 model Session {
-  id                String          @id @default(uuid())
-  venueId           String
-  venue             Venue           @relation(fields: [venueId], references: [id])
-  startedAt         DateTime        @default(now())
-  endedAt           DateTime?
+  id                 String          @id @default(uuid())
+  venueId            String
+  venue              Venue           @relation(fields: [venueId], references: [id])
+  startedAt          DateTime        @default(now())
+  endedAt            DateTime?
   // currentEnergyLevel: 0.0 to 1.0 — controls BPM preference and intensity
-  currentEnergyLevel Float          @default(0.5)
-  isActive          Boolean         @default(true)
+  currentEnergyLevel Float           @default(0.5)
+  isActive           Boolean         @default(true)
   // simulatedUserCount: for testing smart monetization behavior
-  simulatedUserCount Int            @default(0)
-  requests          SongRequest[]
-  playbacks         PlaybackHistory[]
+  simulatedUserCount Int             @default(0)
+  requests           SongRequest[]
+  playbacks          PlaybackHistory[]
+  userSessions       UserSession[]
+  adminActions       AdminAction[]
+  userSnapshots      ActiveUserSnapshot[]
 
   @@index([venueId])
   @@index([isActive])
 }
 
-enum RequestStatus {
-  PENDING
-  APPROVED
-  PLAYED
-  SKIPPED
-  DELETED
+// ─── User-Session Participation (#6, #7, #28) ────────────────────────────────
+
+model UserSession {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id])
+  joinedAt      DateTime @default(now())
+  lastActiveAt  DateTime @default(now()) // Reset on any user activity (vote, request, etc.)
+  expiresAt     DateTime                 // Set to joinedAt + 1 hour, reset on activity
+  isExpired     Boolean  @default(false)
+  // Cooldown tracking (#7) — last time this user submitted a song request
+  lastRequestAt DateTime?
+
+  @@unique([userId, sessionId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([expiresAt])
 }
+
+// ─── Request & Voting ────────────────────────────────────────────────────────
 
 model SongRequest {
   id         String        @id @default(uuid())
@@ -123,6 +221,10 @@ model SongRequest {
   isBoosted    Boolean  @default(false)
   boostAmount  Float    @default(0.0)
   boostPaidAt  DateTime?
+  // Refund tracking (#14)
+  isRefundEligible Boolean  @default(false) // True if user paid for boost
+  isRefunded       Boolean  @default(false)
+  refundedAt       DateTime?
 
   @@index([sessionId, status])
   @@index([songId])
@@ -146,20 +248,28 @@ model Vote {
   @@index([userId])
 }
 
+// ─── Playback & History ──────────────────────────────────────────────────────
+
 model PlaybackHistory {
-  id         String   @id @default(uuid())
-  sessionId  String
-  session    Session  @relation(fields: [sessionId], references: [id])
-  songId     String
-  song       Song     @relation(fields: [songId], references: [id])
-  playedAt   DateTime @default(now())
+  id              String         @id @default(uuid())
+  sessionId       String
+  session         Session        @relation(fields: [sessionId], references: [id])
+  songId          String
+  song            Song           @relation(fields: [songId], references: [id])
+  playedAt        DateTime       @default(now())
   // crowdScore: aggregated vote score at time of play
-  crowdScore Float    @default(0.0)
+  crowdScore      Float          @default(0.0)
   // skipRate: 0.0-1.0, used to penalize songs that get skipped often
-  skipRate   Float    @default(0.0)
+  skipRate        Float          @default(0.0)
+  // Source tracking (#25) — where did this song come from?
+  source          PlaybackSource @default(OPENAUX_REQUEST)
+  // Skip analytics (#29)
+  skippedAt       DateTime?      // When the song was skipped (null if played fully)
+  skipPositionMs  Int?           // How far into the song it was skipped (ms)
 
   @@index([sessionId])
   @@index([songId])
+  @@index([source])
 }
 
 model Blacklist {
@@ -172,4 +282,124 @@ model Blacklist {
 
   @@unique([venueId, songId])
   @@index([venueId])
+}
+
+// ─── Monetization (#11, #12, #14) ───────────────────────────────────────────
+
+model Payment {
+  id               String        @id @default(uuid())
+  userId           String?
+  user             User?         @relation(fields: [userId], references: [id])
+  venueId          String
+  venue            Venue         @relation(fields: [venueId], references: [id])
+  amount           Float         // Total amount in dollars
+  type             PaymentType
+  status           PaymentStatus @default(PENDING)
+  stripePaymentId  String?       @unique // Stripe payment intent ID
+  // Revenue split at time of transaction
+  venueShareAmount   Float?      // Venue's cut
+  platformShareAmount Float?     // OpenAux's cut
+  createdAt        DateTime      @default(now())
+  completedAt      DateTime?
+
+  @@index([userId])
+  @@index([venueId])
+  @@index([status])
+  @@index([type])
+}
+
+model CreditTransaction {
+  id          String                @id @default(uuid())
+  userId      String
+  user        User                  @relation(fields: [userId], references: [id])
+  amount      Float                 // Positive for credits in, negative for credits out
+  type        CreditTransactionType
+  description String?               // e.g. "Boost on 'Not Like Us'", "Purchased 10 credits"
+  // Link to related payment if this was a purchase
+  paymentId   String?
+  // Link to related request if this was a boost debit or refund
+  requestId   String?
+  createdAt   DateTime              @default(now())
+
+  @@index([userId])
+  @@index([type])
+}
+
+// ─── Sponsor Songs & Promotions (#15, #23) ───────────────────────────────────
+
+model SponsorSong {
+  id                     String   @id @default(uuid())
+  venueId                String
+  venue                  Venue    @relation(fields: [venueId], references: [id])
+  songId                 String
+  song                   Song     @relation(fields: [songId], references: [id])
+  // Promotion details
+  promotionText          String?  // e.g. "$2 off tequila shots"
+  promotionDurationMinutes Int    @default(5) // How long the promo lasts after song plays
+  isActive               Boolean  @default(true)
+  isAnthem               Boolean  @default(false) // Venue's signature anthem
+  createdAt              DateTime @default(now())
+
+  @@unique([venueId, songId])
+  @@index([venueId])
+}
+
+// ─── Venue Playlists (#18) ──────────────────────────────────────────────────
+
+model VenuePlaylist {
+  id       String              @id @default(uuid())
+  venueId  String
+  venue    Venue               @relation(fields: [venueId], references: [id])
+  name     String
+  songs    VenuePlaylistSong[]
+  createdAt DateTime           @default(now())
+
+  @@index([venueId])
+}
+
+model VenuePlaylistSong {
+  id         String        @id @default(uuid())
+  playlistId String
+  playlist   VenuePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  songId     String
+  song       Song          @relation(fields: [songId], references: [id])
+  position   Int           // Order in playlist
+
+  @@unique([playlistId, songId])
+  @@index([playlistId])
+}
+
+// ─── Admin Actions Log (#19, #21) ───────────────────────────────────────────
+
+model AdminAction {
+  id         String          @id @default(uuid())
+  venueId    String
+  venue      Venue           @relation(fields: [venueId], references: [id])
+  sessionId  String
+  session    Session         @relation(fields: [sessionId], references: [id])
+  actionType AdminActionType
+  // Optional context — what request/song was acted on
+  targetRequestId String?
+  metadata        Json?      // Flexible extra data (e.g. reason for rejection)
+  createdAt       DateTime   @default(now())
+
+  @@index([venueId])
+  @@index([sessionId])
+  @@index([actionType])
+}
+
+// ─── Analytics Snapshots (#28) ──────────────────────────────────────────────
+
+model ActiveUserSnapshot {
+  id          String   @id @default(uuid())
+  venueId     String
+  venue       Venue    @relation(fields: [venueId], references: [id])
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id])
+  activeCount Int      // Number of active users at this point in time
+  recordedAt  DateTime @default(now())
+
+  @@index([venueId])
+  @@index([sessionId])
+  @@index([recordedAt])
 }
