@@ -1,6 +1,6 @@
 /**
  * API Route: Boost Song Request
- * POST /api/requests/[requestId]/boost - Boost a song request to the top of the queue
+ * POST /api/requests/[requestId]/boost - Move a song request up ~3 positions in the queue
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,6 +13,18 @@ import { invalidateQueueCache } from '@/lib/services/queueCache';
 
 interface RouteContext {
   params: Promise<{ requestId: string }>;
+}
+
+/**
+ * Simulate payment processing for the MVP.
+ * In production this would be replaced by a real payment gateway call (e.g. Stripe).
+ * Always returns true so the boost can proceed — a real implementation would
+ * return false on network errors or insufficient funds.
+ */
+async function simulatePayment(amount: number): Promise<boolean> {
+  // Future: call Stripe or another payment processor here
+  void amount; // amount will be passed to the payment gateway in production
+  return true;
 }
 
 export async function POST(req: NextRequest, context: RouteContext) {
@@ -91,8 +103,22 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    // Boost the request (fake payment for MVP)
-    // Note: boostPrice can be 0 (free) or > 0 (paid)
+    // Simulate payment processing before applying the boost.
+    // In production this would call a real payment processor (e.g. Stripe).
+    // For the MVP we perform a lightweight validation step and then mark the
+    // boost as paid so the guard in the DB layer fires correctly.
+    if (boostPrice > 0) {
+      // Stub: simulate a payment verification delay and confirm success
+      const paymentSuccess = await simulatePayment(boostPrice);
+      if (!paymentSuccess) {
+        return NextResponse.json(
+          { error: 'Payment processing failed. Please try again.' },
+          { status: 402 },
+        );
+      }
+    }
+
+    // Boost the request — payment has already been (simulated as) processed
     const updated = await boostRequest(requestId, boostPrice);
 
     // Invalidate cache and get fresh queue

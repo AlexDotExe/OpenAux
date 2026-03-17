@@ -20,6 +20,9 @@ import { getVenueBlacklist, findVenueById } from '../db/venues';
 import { findSessionById } from '../db/sessions';
 import { getCachedQueue, setCachedQueue } from './queueCache';
 
+/** Number of positions a boosted song advances in the queue */
+export const BOOST_POSITIONS = 3;
+
 export interface ScoredRequest {
   requestId: string;
   songId: string;
@@ -53,7 +56,9 @@ const DEFAULT_CONFIG: DjEngineConfig = {
  * Score = SUM(vote.value × vote.weight)
  *       × energyAdjustment
  *       × crowdFactor
- *       × boostMultiplier
+ *
+ * Note: boost does not affect the score directly — boosted songs are moved
+ * up BOOST_POSITIONS spots in the final sorted queue via applyBoostPositions().
  *
  * Future: add genre affinity score, BPM match score, time-of-night weighting
  */
@@ -80,10 +85,39 @@ export function calculateRequestScore(
   // Crowd size factor: slightly boosts all scores in large crowds
   const crowdFactor = 1 + Math.log1p(totalVoters) * config.crowdSizeFactor;
 
-  // Boost multiplier: boosted songs get 10x score
-  const boostMultiplier = request.isBoosted ? 10.0 : 1.0;
+  return baseScore * energyAdjustment * crowdFactor;
+}
 
-  return baseScore * energyAdjustment * crowdFactor * boostMultiplier;
+/**
+ * Apply position-based boost: move each boosted song up BOOST_POSITIONS spots
+ * in the already-sorted queue.
+ *
+ * Songs with votes + a boost naturally jump ahead of similarly-scored songs.
+ * Each boosted song is identified by requestId so it is never moved twice,
+ * even when multiple boosted songs are present. Highest-indexed (lowest-ranked)
+ * boosted songs are processed first so earlier insertions don't shift the
+ * remaining target indices unexpectedly.
+ */
+export function applyBoostPositions(sorted: ScoredRequest[]): ScoredRequest[] {
+  const result = [...sorted];
+  const processedIds = new Set<string>();
+
+  // Iterate from the last position upward; use requestId to skip already-moved songs
+  let i = result.length - 1;
+  while (i >= 0) {
+    const song = result[i];
+    if (song.isBoosted && !processedIds.has(song.requestId)) {
+      processedIds.add(song.requestId);
+      const newIdx = Math.max(0, i - BOOST_POSITIONS);
+      if (newIdx !== i) {
+        result.splice(i, 1);
+        result.splice(newIdx, 0, song);
+      }
+    }
+    i--;
+  }
+
+  return result;
 }
 
 /**
@@ -188,7 +222,10 @@ export async function selectNextSong(
   // Sort descending by score
   scored.sort((a, b) => b.score - a.score);
 
-  return scored[0];
+  // Apply position-based boost: move boosted songs up BOOST_POSITIONS spots
+  const ranked = applyBoostPositions(scored);
+
+  return ranked[0];
 }
 
 /**
@@ -253,8 +290,11 @@ export async function getRankedQueue(sessionId: string, skipCache = false): Prom
 
   scored.sort((a, b) => b.score - a.score);
 
-  // Cache the result
-  setCachedQueue(sessionId, scored);
+  // Apply position-based boost: move boosted songs up BOOST_POSITIONS spots
+  const ranked = applyBoostPositions(scored);
 
-  return scored;
+  // Cache the result
+  setCachedQueue(sessionId, ranked);
+
+  return ranked;
 }

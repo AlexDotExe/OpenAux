@@ -54,7 +54,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       const data = await res.json();
 
       if (res.ok) {
-        setBoostStatus('Success! Your song has been boosted to the top!');
+        setBoostStatus('Success! Your song has been boosted +3 spots up the queue!');
         setTimeout(() => {
           setShowBoostModal(false);
           setBoostStatus(null);
@@ -196,7 +196,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                       : 'bg-yellow-600 hover:bg-yellow-700 text-black'
                   } disabled:opacity-40`}
                 >
-                  ⚡ {boostPrice === 0 ? 'Boost to Top' : `Boost to Top - $${boostPrice.toFixed(2)}`}
+                  ⚡ {boostPrice === 0 ? 'Priority Boost +3 Spots (Free)' : `Priority Boost +3 Spots - $${boostPrice.toFixed(2)}`}
                 </button>
               )}
             </div>
@@ -208,14 +208,20 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       {showBoostModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-gray-900 rounded-xl p-6 max-w-sm w-full space-y-4">
-            <h3 className="text-xl font-bold">⚡ Boost Your Song</h3>
+            <h3 className="text-xl font-bold">⚡ Priority Boost</h3>
             {!boostStatus ? (
               <>
                 <p className="text-gray-400">
-                  Boost this song to the top of the queue for ${boostPrice.toFixed(2)}?
+                  {boostPrice === 0
+                    ? 'Boost this song up 3 spots in the queue for free?'
+                    : `Pay $${boostPrice.toFixed(2)} to move this song up 3 spots in the queue?`}
+                </p>
+                <p className="text-sm text-gray-500">
+                  Songs with votes and a boost jump ahead of similarly-scored songs.
+                  You can only boost each song once.
                 </p>
                 <p className="text-sm text-yellow-500">
-                  Note: This is a fake payment for MVP demonstration
+                  Note: This is a simulated payment for MVP demonstration
                 </p>
                 <div className="flex gap-3">
                   <button
