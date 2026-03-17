@@ -6,7 +6,7 @@ import { SongRequest, RequestStatus } from '@prisma/client';
  */
 
 export type SongRequestWithDetails = SongRequest & {
-  song: { id: string; title: string; artist: string; bpm: number | null; genreTags: string[] };
+  song: { id: string; title: string; artist: string; bpm: number | null; genreTags: string[]; durationMs: number | null };
   user: { id: string; influenceWeight: number };
   votes: { userId: string; value: number; weight: number }[];
   _count?: { votes: number };
@@ -24,7 +24,7 @@ export async function findActiveRequests(sessionId: string): Promise<SongRequest
   return prisma.songRequest.findMany({
     where: { sessionId, status: { in: ['PENDING', 'APPROVED'] } },
     include: {
-      song: { select: { id: true, title: true, artist: true, bpm: true, genreTags: true } },
+      song: { select: { id: true, title: true, artist: true, bpm: true, genreTags: true, durationMs: true } },
       user: { select: { id: true, influenceWeight: true } },
       votes: { select: { userId: true, value: true, weight: true } },
     },
@@ -50,7 +50,7 @@ export async function findRequestById(id: string): Promise<SongRequestWithDetail
   return prisma.songRequest.findUnique({
     where: { id },
     include: {
-      song: { select: { id: true, title: true, artist: true, bpm: true, genreTags: true } },
+      song: { select: { id: true, title: true, artist: true, bpm: true, genreTags: true, durationMs: true } },
       user: { select: { id: true, influenceWeight: true } },
       votes: { select: { userId: true, value: true, weight: true } },
     },
