@@ -2,9 +2,20 @@
 
 import { useState } from 'react';
 import { useSessionStore } from '@/lib/store/useSessionStore';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
+
+// Lazy-load Stripe to avoid blocking initial render
+const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+  : null;
 
 // Average pop/club song duration used when actual durationMs is not available in the database.
-// Based on typical song lengths in bar/club settings (3-4 min range).
 const DEFAULT_SONG_DURATION_MS = 3.5 * 60 * 1000;
 
 interface Song {
@@ -33,8 +44,6 @@ interface Props {
 
 /**
  * Calculate estimated wait time in milliseconds for a song at the given queue index.
- * Index 0 = next song to play (waits for currently playing song to finish).
- * Index N = waits for N songs ahead of it plus the remaining time of the current song.
  */
 function calculateWaitTimeMs(songs: Song[], index: number, nowPlayingRemainingMs: number): number {
   let waitMs = nowPlayingRemainingMs;
@@ -49,6 +58,95 @@ function formatWaitTime(ms: number): string {
   return minutes < 1 ? '< 1 min' : `~${minutes} min`;
 }
 
+// Inner payment form rendered inside <Elements>
+function StripeBoostForm({
+  requestId,
+  userId,
+  boostPrice,
+  onSuccess,
+  onCancel,
+}: {
+  requestId: string;
+  userId: string;
+  boostPrice: number;
+  onSuccess: () => void;
+  onCancel: () => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [status, setStatus] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setProcessing(true);
+    setStatus(null);
+
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: 'if_required',
+    });
+
+    if (error) {
+      setStatus(`Payment failed: ${error.message}`);
+      setProcessing(false);
+      return;
+    }
+
+    if (paymentIntent?.status !== 'succeeded') {
+      setStatus('Payment did not complete. Please try again.');
+      setProcessing(false);
+      return;
+    }
+
+    const res = await fetch(`/api/requests/${requestId}/boost`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, stripePaymentIntentId: paymentIntent.id }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      setStatus('Song boosted +3 spots up the queue!');
+      setTimeout(() => onSuccess(), 1500);
+    } else {
+      setStatus(`Error: ${data.error}`);
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      {status && (
+        <p className={status.startsWith('Error') ? 'text-red-400 text-sm' : 'text-green-400 text-sm'}>
+          {status}
+        </p>
+      )}
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={processing}
+          className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!stripe || processing}
+          className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-40 text-black py-2 rounded-lg font-semibold"
+        >
+          {processing ? 'Processing...' : `Pay $${boostPrice.toFixed(2)}`}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, monetizationEnabled = false, nowPlayingRemainingMs = 0, onBoostSuccess }: Props) {
   const { queue: storeQueue } = useSessionStore();
   const displayQueue = queue.length > 0 ? queue : storeQueue;
@@ -56,13 +154,44 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
   const [showBoostModal, setShowBoostModal] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [boostStatus, setBoostStatus] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [loadingIntent, setLoadingIntent] = useState(false);
 
-  const handleBoostClick = (requestId: string) => {
+  const handleBoostClick = async (requestId: string) => {
     setSelectedRequestId(requestId);
-    setShowBoostModal(true);
+    setBoostStatus(null);
+    setClientSecret(null);
+
+    if (boostPrice > 0 && stripePromise) {
+      // Paid boost: create a payment intent first
+      setLoadingIntent(true);
+      setShowBoostModal(true);
+
+      try {
+        const res = await fetch('/api/payments/create-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestId, userId: currentUserId }),
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          setClientSecret(data.clientSecret);
+        } else {
+          setBoostStatus(`Error: ${data.error}`);
+        }
+      } catch {
+        setBoostStatus('Failed to initialize payment. Please try again.');
+      } finally {
+        setLoadingIntent(false);
+      }
+    } else {
+      // Free boost: show simple confirmation
+      setShowBoostModal(true);
+    }
   };
 
-  const confirmBoost = async () => {
+  const confirmFreeBoost = async () => {
     if (!selectedRequestId || !currentUserId) return;
 
     setBoostingRequestId(selectedRequestId);
@@ -80,8 +209,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       if (res.ok) {
         setBoostStatus('Success! Your song has been boosted +3 spots up the queue!');
         setTimeout(() => {
-          setShowBoostModal(false);
-          setBoostStatus(null);
+          closeModal();
           if (onBoostSuccess) onBoostSuccess();
         }, 2000);
       } else {
@@ -94,6 +222,13 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
     }
   };
 
+  const closeModal = () => {
+    setShowBoostModal(false);
+    setClientSecret(null);
+    setBoostStatus(null);
+    setBoostingRequestId(null);
+  };
+
   if (displayQueue.length === 0) {
     return (
       <div className="bg-gray-900 rounded-xl p-4 text-center">
@@ -104,14 +239,12 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
   }
 
   const canBoost = (song: Song) => {
-    // Show boost button if user owns the song and it's not already boosted
     const result = (
       currentUserId &&
       song.userId === currentUserId &&
       !song.isBoosted
     );
 
-    // Debug logging
     if (currentUserId && song.userId === currentUserId) {
       console.log('[SongQueue] Boost check for song:', {
         songTitle: song.title,
@@ -163,13 +296,11 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
             >
               {/* Top row: Position, Song info, Vote buttons, Score */}
               <div className="flex items-center gap-3">
-                {/* Position */}
                 <span className="text-gray-600 font-mono text-sm w-5 shrink-0">
                   {song.isBoosted && '⚡'}
                   {idx === 0 ? '▶' : `${idx + 1}`}
                 </span>
 
-                {/* Song info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-medium truncate">{song.title}</p>
@@ -182,7 +313,6 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                   <p className="text-gray-400 text-sm truncate">{song.artist}</p>
                 </div>
 
-                {/* Vote buttons */}
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     onClick={() => onVote(song.requestId, 1)}
@@ -207,11 +337,10 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                   </button>
                 </div>
 
-                {/* Score */}
                 <div className="text-xs text-gray-500 shrink-0">{song.score.toFixed(1)}</div>
               </div>
 
-              {/* Bottom row: Boost button (full width) */}
+              {/* Bottom row: Boost button */}
               {canBoost(song) && (() => {
                 const currentWaitMs = calculateWaitTimeMs(displayQueue, idx, nowPlayingRemainingMs);
                 const boostedIdx = Math.max(0, idx - 3);
@@ -243,7 +372,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
         ))}
       </div>
 
-      {/* Boost Confirmation Modal */}
+      {/* Boost Modal */}
       {showBoostModal && (() => {
         const selectedIdx = selectedRequestId ? displayQueue.findIndex(s => s.requestId === selectedRequestId) : -1;
         const boostedIdx = Math.max(0, selectedIdx - 3);
@@ -254,48 +383,92 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
             <div className="bg-gray-900 rounded-xl p-6 max-w-sm w-full space-y-4">
               <h3 className="text-xl font-bold">⚡ Priority Boost</h3>
-              {!boostStatus ? (
-                <>
-                  <p className="text-gray-400">
-                    {boostPrice === 0
-                      ? 'Boost this song up 3 spots in the queue for free?'
-                      : `Pay $${boostPrice.toFixed(2)} to move this song up 3 spots in the queue?`}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    Songs with votes and a boost jump ahead of similarly-scored songs.
-                    You can only boost each song once.
-                  </p>
-                  {savingsMs > 0 && (
-                    <p className="text-sm text-yellow-400">
-                      ⏱ Boost to save {formatWaitTime(savingsMs)}
+
+              {/* Paid boost: Stripe payment form */}
+              {boostPrice > 0 && stripePromise ? (
+                loadingIntent ? (
+                  <p className="text-gray-400 animate-pulse text-center py-4">Loading payment form...</p>
+                ) : clientSecret ? (
+                  <Elements
+                    stripe={stripePromise}
+                    options={{
+                      clientSecret,
+                      appearance: { theme: 'night', labels: 'floating' },
+                    }}
+                  >
+                    <p className="text-gray-400 text-sm">
+                      Move this song up 3 spots in the queue for{' '}
+                      <span className="text-yellow-400 font-semibold">${boostPrice.toFixed(2)}</span>.
                     </p>
-                  )}
-                  <p className="text-sm text-yellow-500">
-                    Note: This is a simulated payment for MVP demonstration
-                  </p>
-                  <div className="flex gap-3">
+                    {savingsMs > 0 && (
+                      <p className="text-sm text-yellow-400">
+                        ⏱ Boost to save {formatWaitTime(savingsMs)}
+                      </p>
+                    )}
+                    <StripeBoostForm
+                      requestId={selectedRequestId!}
+                      userId={currentUserId!}
+                      boostPrice={boostPrice}
+                      onSuccess={() => {
+                        closeModal();
+                        if (onBoostSuccess) onBoostSuccess();
+                      }}
+                      onCancel={closeModal}
+                    />
+                  </Elements>
+                ) : (
+                  <div className="space-y-4">
+                    {boostStatus && (
+                      <p className="text-red-400 text-sm">{boostStatus}</p>
+                    )}
                     <button
-                      onClick={() => setShowBoostModal(false)}
-                      disabled={!!boostingRequestId}
-                      className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                      onClick={closeModal}
+                      className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
                     >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={confirmBoost}
-                      disabled={!!boostingRequestId}
-                      className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-40 text-black py-2 rounded-lg font-semibold"
-                    >
-                      {boostingRequestId ? 'Boosting...' : 'Confirm Boost'}
+                      Close
                     </button>
                   </div>
-                </>
+                )
               ) : (
-                <div className="text-center">
-                  <p className={boostStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'}>
-                    {boostStatus}
-                  </p>
-                </div>
+                // Free boost: simple confirmation
+                !boostStatus ? (
+                  <>
+                    <p className="text-gray-400">
+                      Boost this song up 3 spots in the queue for free?
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Songs with votes and a boost jump ahead of similarly-scored songs.
+                      You can only boost each song once.
+                    </p>
+                    {savingsMs > 0 && (
+                      <p className="text-sm text-yellow-400">
+                        ⏱ Boost to save {formatWaitTime(savingsMs)}
+                      </p>
+                    )}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={closeModal}
+                        disabled={!!boostingRequestId}
+                        className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={confirmFreeBoost}
+                        disabled={!!boostingRequestId}
+                        className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                      >
+                        {boostingRequestId ? 'Boosting...' : 'Boost +3 Spots'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center">
+                    <p className={boostStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'}>
+                      {boostStatus}
+                    </p>
+                  </div>
+                )
               )}
             </div>
           </div>

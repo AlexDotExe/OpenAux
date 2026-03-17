@@ -1,6 +1,9 @@
 /**
  * API Route: Boost Song Request
  * POST /api/requests/[requestId]/boost - Move a song request up ~3 positions in the queue
+ *
+ * For free boosts (boostPrice === 0): pass { userId }
+ * For paid boosts: pass { userId, stripePaymentIntentId } after completing Stripe payment
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,28 +13,18 @@ import { findVenueById } from '@/lib/db/venues';
 import { getRankedQueue } from '@/lib/services/virtualDjEngine';
 import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
+import { stripe } from '@/lib/stripe';
+import { findPaymentByStripeId, updatePaymentStatus } from '@/lib/db/payments';
 
 interface RouteContext {
   params: Promise<{ requestId: string }>;
-}
-
-/**
- * Simulate payment processing for the MVP.
- * In production this would be replaced by a real payment gateway call (e.g. Stripe).
- * Always returns true so the boost can proceed — a real implementation would
- * return false on network errors or insufficient funds.
- */
-async function simulatePayment(amount: number): Promise<boolean> {
-  // Future: call Stripe or another payment processor here
-  void amount; // amount will be passed to the payment gateway in production
-  return true;
 }
 
 export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { requestId } = await context.params;
     const body = await req.json();
-    const { userId } = body;
+    const { userId, stripePaymentIntentId } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'userId is required' }, { status: 400 });
@@ -103,22 +96,41 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    // Simulate payment processing before applying the boost.
-    // In production this would call a real payment processor (e.g. Stripe).
-    // For the MVP we perform a lightweight validation step and then mark the
-    // boost as paid so the guard in the DB layer fires correctly.
+    // For paid boosts, verify the Stripe payment intent is succeeded
     if (boostPrice > 0) {
-      // Stub: simulate a payment verification delay and confirm success
-      const paymentSuccess = await simulatePayment(boostPrice);
-      if (!paymentSuccess) {
+      if (!stripePaymentIntentId) {
         return NextResponse.json(
-          { error: 'Payment processing failed. Please try again.' },
+          { error: 'stripePaymentIntentId is required for paid boosts' },
+          { status: 400 },
+        );
+      }
+
+      // Verify payment intent with Stripe
+      const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+
+      if (paymentIntent.status !== 'succeeded') {
+        return NextResponse.json(
+          { error: 'Payment has not been completed' },
           { status: 402 },
         );
       }
+
+      // Verify the payment intent is for this request
+      if (paymentIntent.metadata?.requestId !== requestId) {
+        return NextResponse.json(
+          { error: 'Payment intent does not match this request' },
+          { status: 400 },
+        );
+      }
+
+      // Update the payment record to COMPLETED
+      const payment = await findPaymentByStripeId(stripePaymentIntentId);
+      if (payment && payment.status !== 'COMPLETED') {
+        await updatePaymentStatus(payment.id, 'COMPLETED', new Date());
+      }
     }
 
-    // Boost the request — payment has already been (simulated as) processed
+    // Boost the request — position-based (+3 spots)
     const updated = await boostRequest(requestId, boostPrice);
 
     // Invalidate cache and get fresh queue
