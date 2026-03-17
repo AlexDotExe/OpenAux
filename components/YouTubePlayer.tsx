@@ -50,7 +50,18 @@ export function YouTubePlayer({ videoId, onEnded, onStateChange }: YouTubePlayer
       playerVars: { autoplay: 1, controls: 1, modestbranding: 1 },
       events: {
         onStateChange: (event) => {
+          const stateNames: Record<number, string> = {
+            [-1]: 'UNSTARTED',
+            [0]: 'ENDED',
+            [1]: 'PLAYING',
+            [2]: 'PAUSED',
+            [3]: 'BUFFERING',
+            [5]: 'CUED',
+          };
+          console.log('[YouTubePlayer] State changed to:', stateNames[event.data] ?? event.data);
+
           if (event.data === window.YT.PlayerState.ENDED) {
+            console.log('[YouTubePlayer] Video ended, calling onEnded');
             onEnded?.();
           }
           if (onStateChange) {

@@ -34,6 +34,7 @@ export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVid
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [previousTrackId, setPreviousTrackId] = useState<string | null>(null);
   const [hasCalledTrackEnded, setHasCalledTrackEnded] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false);
 
   const fetchPlayback = useCallback(async () => {
     try {
@@ -57,7 +58,7 @@ export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVid
 
   // Detect Spotify track changes (auto-advance) or track end
   useEffect(() => {
-    if (!playback || streamingService !== 'spotify') return;
+    if (!playback || streamingService !== 'spotify' || isAdvancing) return;
 
     const currentTrackId = playback.currentTrack?.serviceId;
 
@@ -65,7 +66,10 @@ export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVid
     if (currentTrackId && previousTrackId && currentTrackId !== previousTrackId) {
       console.log('[NowPlaying] Track changed from', previousTrackId, 'to', currentTrackId);
       setHasCalledTrackEnded(false); // Reset flag for new track
+      setIsAdvancing(true);
       onTrackEnded?.();
+      // Reset after 2 seconds to allow next track change
+      setTimeout(() => setIsAdvancing(false), 2000);
     }
 
     // Track ended but didn't auto-advance (fallback)
@@ -73,19 +77,23 @@ export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVid
     if (
       currentTrackId &&
       !hasCalledTrackEnded &&
+      !isAdvancing &&
       playback.durationMs > 0 &&
       playback.progressMs >= playback.durationMs - 2000 &&
       !playback.isPlaying
     ) {
       console.log('[NowPlaying] Track ended without auto-advance, calling onTrackEnded');
       setHasCalledTrackEnded(true); // Prevent multiple calls for same track
+      setIsAdvancing(true);
       onTrackEnded?.();
+      // Reset after 2 seconds
+      setTimeout(() => setIsAdvancing(false), 2000);
     }
 
     if (currentTrackId && currentTrackId !== previousTrackId) {
       setPreviousTrackId(currentTrackId);
     }
-  }, [playback, streamingService, onTrackEnded, previousTrackId, hasCalledTrackEnded]);
+  }, [playback, streamingService, onTrackEnded, previousTrackId, hasCalledTrackEnded, isAdvancing]);
 
   const handleAction = async (action: 'pause' | 'resume' | 'skip') => {
     await fetch(`/api/admin/${venueId}/playback`, {
