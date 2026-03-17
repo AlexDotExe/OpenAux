@@ -6,6 +6,9 @@ import { findVenueById } from '@/lib/db/venues';
 import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
 import { updateUserSessionActivity } from '@/lib/db/userSessions';
+import { findUserSession, updateUserSessionLastRequest } from '@/lib/db/users';
+
+const COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes
 
 /**
  * POST /api/requests
@@ -26,6 +29,19 @@ export async function POST(req: NextRequest) {
     const session = await findSessionById(sessionId);
     if (!session || !session.isActive) {
       return NextResponse.json({ error: 'Session not found or not active' }, { status: 404 });
+    }
+
+    // Enforce per-user cooldown: 1 request per 2 minutes
+    const userSession = await findUserSession(userId, sessionId);
+    if (userSession?.lastRequestAt) {
+      const elapsed = Date.now() - userSession.lastRequestAt.getTime();
+      if (elapsed < COOLDOWN_MS) {
+        const cooldownRemainingSeconds = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+        return NextResponse.json(
+          { error: `Please wait ${cooldownRemainingSeconds}s before requesting another song`, cooldownRemainingSeconds },
+          { status: 429 },
+        );
+      }
     }
 
     // Check user's pending request limit using effective settings
@@ -83,6 +99,9 @@ export async function POST(req: NextRequest) {
 
     // Reset the session expiry timer for this user
     await updateUserSessionActivity(userId, sessionId);
+
+    // Record timestamp for cooldown enforcement
+    await updateUserSessionLastRequest(userId, sessionId);
 
     // Invalidate queue cache and return updated queue so UI updates immediately
     invalidateQueueCache(sessionId);
