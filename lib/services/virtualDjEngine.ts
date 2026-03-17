@@ -27,6 +27,7 @@ export interface ScoredRequest {
   artist: string;
   score: number;
   voteCount: number;
+  durationMs?: number;
   isBoosted?: boolean;
   boostAmount?: number;
   userId?: string;
@@ -180,6 +181,7 @@ export async function selectNextSong(
     artist: req.song.artist,
     score: calculateRequestScore(req, session.currentEnergyLevel, totalVoters, config),
     voteCount: req.votes.length,
+    durationMs: req.song.durationMs ?? undefined,
     isBoosted: req.isBoosted,
     boostAmount: req.boostAmount,
     userId: req.userId,
@@ -246,6 +248,7 @@ export async function getRankedQueue(sessionId: string, skipCache = false): Prom
     artist: req.song.artist,
     score: calculateRequestScore(req, session.currentEnergyLevel, totalVoters),
     voteCount: req.votes.length,
+    durationMs: req.song.durationMs ?? undefined,
     isBoosted: req.isBoosted,
     boostAmount: req.boostAmount,
     userId: req.userId,

@@ -18,9 +18,10 @@ interface PlaybackState {
 
 interface NowPlayingUserProps {
   sessionId: string;
+  onPlaybackUpdate?: (remainingMs: number) => void;
 }
 
-export function NowPlayingUser({ sessionId }: NowPlayingUserProps) {
+export function NowPlayingUser({ sessionId, onPlaybackUpdate }: NowPlayingUserProps) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [requesterName, setRequesterName] = useState<string | null>(null);
 
@@ -32,6 +33,10 @@ export function NowPlayingUser({ sessionId }: NowPlayingUserProps) {
         const data = await res.json();
         setPlayback(data.playback);
         setRequesterName(data.requesterName ?? null);
+        if (onPlaybackUpdate && data.playback) {
+          const remainingMs = Math.max(0, (data.playback.durationMs ?? 0) - (data.playback.progressMs ?? 0));
+          onPlaybackUpdate(remainingMs);
+        }
       } catch (error) {
         console.error('Failed to fetch playback state:', error);
       }
@@ -41,7 +46,7 @@ export function NowPlayingUser({ sessionId }: NowPlayingUserProps) {
     const interval = setInterval(fetchPlayback, 5000); // Poll every 5 seconds
 
     return () => clearInterval(interval);
-  }, [sessionId]);
+  }, [sessionId, onPlaybackUpdate]);
 
   if (!playback || !playback.currentTrack) {
     return null; // Graceful empty state

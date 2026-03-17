@@ -17,6 +17,7 @@ export interface Song {
   artist: string;
   score: number;
   voteCount: number;
+  durationMs?: number;
   userVote?: 1 | -1;
   isBoosted?: boolean;
   boostAmount?: number;

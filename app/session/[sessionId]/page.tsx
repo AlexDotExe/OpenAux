@@ -24,6 +24,7 @@ interface SessionData {
     artist: string;
     score: number;
     voteCount: number;
+    durationMs?: number;
     isBoosted?: boolean;
     boostAmount?: number;
     userId?: string;
@@ -49,6 +50,7 @@ export default function SessionPage() {
   const [djNameInput, setDjNameInput] = useState('');
   const [djNameSaving, setDjNameSaving] = useState(false);
   const [djNameSaved, setDjNameSaved] = useState(false);
+  const [nowPlayingRemainingMs, setNowPlayingRemainingMs] = useState<number>(0);
 
   const loadEffectiveSettings = useCallback(async (sessionId: string) => {
     try {
@@ -233,7 +235,7 @@ export default function SessionPage() {
         </div>
 
         {/* Now Playing */}
-        <NowPlayingUser sessionId={session.id} />
+        <NowPlayingUser sessionId={session.id} onPlaybackUpdate={setNowPlayingRemainingMs} />
 
         {/* Song Request Form */}
         <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />
@@ -245,6 +247,7 @@ export default function SessionPage() {
           currentUserId={userId ?? undefined}
           boostPrice={boostPrice}
           monetizationEnabled={monetizationEnabled}
+          nowPlayingRemainingMs={nowPlayingRemainingMs}
           onBoostSuccess={loadSession}
         />
       </div>
