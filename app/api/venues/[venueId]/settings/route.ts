@@ -26,6 +26,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       maxSongsPerUser: venue.maxSongsPerUser,
       monetizationEnabled: venue.monetizationEnabled,
       smartMonetizationEnabled: venue.smartMonetizationEnabled,
+      suggestionModeEnabled: venue.suggestionModeEnabled,
     });
   } catch (err) {
     console.error('[GET /api/venues/[venueId]/settings]', err);
@@ -55,6 +56,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       maxSongsPerUser?: number;
       monetizationEnabled?: boolean;
       smartMonetizationEnabled?: boolean;
+      suggestionModeEnabled?: boolean;
     } = {};
 
     if (body.defaultBoostPrice !== undefined) settings.defaultBoostPrice = body.defaultBoostPrice;
@@ -62,6 +64,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (body.maxSongsPerUser !== undefined) settings.maxSongsPerUser = body.maxSongsPerUser;
     if (body.monetizationEnabled !== undefined) settings.monetizationEnabled = body.monetizationEnabled;
     if (body.smartMonetizationEnabled !== undefined) settings.smartMonetizationEnabled = body.smartMonetizationEnabled;
+    if (body.suggestionModeEnabled !== undefined) settings.suggestionModeEnabled = body.suggestionModeEnabled;
 
     const updated = await updateVenueSettings(venueId, settings);
 
@@ -71,6 +74,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       maxSongsPerUser: updated.maxSongsPerUser,
       monetizationEnabled: updated.monetizationEnabled,
       smartMonetizationEnabled: updated.smartMonetizationEnabled,
+      suggestionModeEnabled: updated.suggestionModeEnabled,
     });
   } catch (err) {
     console.error('[PUT /api/venues/[venueId]/settings]', err);

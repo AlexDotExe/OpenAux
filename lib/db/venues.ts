@@ -94,6 +94,7 @@ export async function updateVenueSettings(
     maxSongsPerUser?: number;
     monetizationEnabled?: boolean;
     smartMonetizationEnabled?: boolean;
+    suggestionModeEnabled?: boolean;
   },
 ): Promise<Venue> {
   return prisma.venue.update({

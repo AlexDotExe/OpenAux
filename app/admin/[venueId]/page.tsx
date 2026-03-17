@@ -30,6 +30,16 @@ interface QueueItem {
   userId?: string;
 }
 
+export interface PendingSuggestion {
+  requestId: string;
+  title: string;
+  artist: string;
+  albumArtUrl?: string | null;
+  userId: string;
+  displayName?: string | null;
+  createdAt: string;
+}
+
 export default function AdminPage() {
   const params = useParams<{ venueId: string }>();
   const searchParams = useSearchParams();
@@ -48,8 +58,11 @@ export default function AdminPage() {
   const [maxSongsPerUser, setMaxSongsPerUser] = useState(5);
   const [monetizationEnabled, setMonetizationEnabled] = useState(false);
   const [smartMonetizationEnabled, setSmartMonetizationEnabled] = useState(false);
+  const [suggestionModeEnabled, setSuggestionModeEnabled] = useState(false);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<string | null>(null);
   const [simulatedUsers, setSimulatedUsers] = useState(0);
+  // Pending suggestions state
+  const [pendingSuggestions, setPendingSuggestions] = useState<PendingSuggestion[]>([]);
 
   const updateSimulatedUsers = async (count: number) => {
     if (!venueData?.activeSession) return;
@@ -100,9 +113,22 @@ export default function AdminPage() {
         setMaxSongsPerUser(settings.maxSongsPerUser ?? 5);
         setMonetizationEnabled(settings.monetizationEnabled ?? false);
         setSmartMonetizationEnabled(settings.smartMonetizationEnabled ?? false);
+        setSuggestionModeEnabled(settings.suggestionModeEnabled ?? false);
       }
     } catch (err) {
       console.error('Failed to load venue settings:', err);
+    }
+  }, [params.venueId]);
+
+  const loadPendingSuggestions = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/admin/${params.venueId}/suggestions?sessionId=${sessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPendingSuggestions(data.suggestions ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to load pending suggestions:', err);
     }
   }, [params.venueId]);
 
@@ -119,9 +145,14 @@ export default function AdminPage() {
       // Count unique users in the session
       const uniqueUsers = new Set(sessData.queue?.map((item: QueueItem) => item.userId).filter(Boolean));
       setUserCount(uniqueUsers.size);
+
+      // Load pending suggestions if suggestion mode is enabled
+      if (suggestionModeEnabled) {
+        await loadPendingSuggestions(data.activeSession.id);
+      }
     }
     // Note: Settings are NOT reloaded here to prevent overwriting unsaved changes
-  }, [params.venueId]);
+  }, [params.venueId, suggestionModeEnabled, loadPendingSuggestions]);
 
   useEffect(() => {
     if (authed) {
@@ -250,6 +281,41 @@ export default function AdminPage() {
     setLoading(false);
   };
 
+  const handleApproveSuggestion = async (requestId: string) => {
+    setLoading(true);
+    await fetch(`/api/admin/${params.venueId}/requests/${requestId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword: password }),
+    });
+    await load();
+    setLoading(false);
+  };
+
+  const handleRejectSuggestion = async (requestId: string) => {
+    setLoading(true);
+    await fetch(`/api/admin/${params.venueId}/requests/${requestId}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword: password }),
+    });
+    await load();
+    setLoading(false);
+  };
+
+  const handleBulkAction = async (action: 'approve' | 'reject', requestIds: string[]) => {
+    if (requestIds.length === 0) return;
+    setLoading(true);
+    const sessionId = venueData?.activeSession?.id;
+    await fetch(`/api/admin/${params.venueId}/suggestions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword: password, action, requestIds, sessionId }),
+    });
+    await load();
+    setLoading(false);
+  };
+
   const handleSaveSettings = async () => {
     setLoading(true);
     setSettingsSaveStatus(null);
@@ -264,6 +330,7 @@ export default function AdminPage() {
           maxSongsPerUser,
           monetizationEnabled,
           smartMonetizationEnabled,
+          suggestionModeEnabled,
         }),
       });
       const data = await res.json();
@@ -350,6 +417,8 @@ export default function AdminPage() {
           setMonetizationEnabled={setMonetizationEnabled}
           smartMonetizationEnabled={smartMonetizationEnabled}
           setSmartMonetizationEnabled={setSmartMonetizationEnabled}
+          suggestionModeEnabled={suggestionModeEnabled}
+          setSuggestionModeEnabled={setSuggestionModeEnabled}
           onSaveSettings={handleSaveSettings}
           settingsSaveStatus={settingsSaveStatus}
           // Active Users
@@ -365,6 +434,11 @@ export default function AdminPage() {
           onDelete={handleDelete}
           onSkip={handleSkip}
           onBlacklist={handleBlacklist}
+          // Pending Suggestions
+          pendingSuggestions={pendingSuggestions}
+          onApproveSuggestion={handleApproveSuggestion}
+          onRejectSuggestion={handleRejectSuggestion}
+          onBulkAction={handleBulkAction}
         />
       </div>
     </main>
