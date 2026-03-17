@@ -29,3 +29,10 @@ export async function updateUserReputation(userId: string, reputationScore: numb
     data: { reputationScore, influenceWeight },
   });
 }
+
+export async function updateUserDisplayName(userId: string, displayName: string): Promise<User> {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { displayName },
+  });
+}

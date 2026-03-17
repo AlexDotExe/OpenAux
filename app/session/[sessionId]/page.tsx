@@ -7,6 +7,7 @@ import { useSessionStore } from '@/lib/store/useSessionStore';
 import { SongRequestForm } from '@/components/SongRequestForm';
 import { SongQueue } from '@/components/SongQueue';
 import { NowPlayingUser } from '@/components/NowPlayingUser';
+import { MAX_DISPLAY_NAME_LENGTH } from '@/lib/constants';
 
 interface SessionData {
   session: {
@@ -31,13 +32,16 @@ interface SessionData {
 
 export default function SessionPage() {
   const params = useParams<{ sessionId: string }>();
-  const { initDevice, setUser, setSession, setQueue, deviceFingerprint, queue, influenceWeight, userId } =
+  const { initDevice, setUser, setSession, setQueue, deviceFingerprint, queue, influenceWeight, userId, displayName, setDisplayName } =
     useSessionStore();
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [boostPrice, setBoostPrice] = useState(5.0);
   const [monetizationEnabled, setMonetizationEnabled] = useState(false);
   const [userCount, setUserCount] = useState(0);
+  const [djNameInput, setDjNameInput] = useState('');
+  const [djNameSaving, setDjNameSaving] = useState(false);
+  const [djNameSaved, setDjNameSaved] = useState(false);
 
   const loadEffectiveSettings = useCallback(async (sessionId: string) => {
     try {
@@ -79,7 +83,10 @@ export default function SessionPage() {
       body: JSON.stringify({ deviceFingerprint: fp }),
     })
       .then((r) => r.json())
-      .then((user) => setUser(user.id, user.influenceWeight, user.reputationScore))
+      .then((user) => {
+        setUser(user.id, user.influenceWeight, user.reputationScore, user.displayName);
+        setDjNameInput(user.displayName ?? '');
+      })
       .catch(console.error);
 
     loadSession()
@@ -94,6 +101,28 @@ export default function SessionPage() {
     const interval = setInterval(loadSession, 5000);
     return () => clearInterval(interval);
   }, [params.sessionId, initDevice, setUser, setSession, loadSession]);
+
+  const handleSaveDjName = async () => {
+    if (!userId || !djNameInput.trim()) return;
+    setDjNameSaving(true);
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: djNameInput.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDisplayName(data.displayName);
+        setDjNameSaved(true);
+        setTimeout(() => setDjNameSaved(false), 2000);
+      }
+    } catch (err) {
+      console.error('Failed to save DJ name:', err);
+    } finally {
+      setDjNameSaving(false);
+    }
+  };
 
   const handleVote = async (requestId: string, value: 1 | -1) => {
     if (!deviceFingerprint) return;
@@ -146,14 +175,29 @@ export default function SessionPage() {
         {/* Guest Status */}
         <div className="bg-gray-900 rounded-xl p-3">
           <p className="text-sm text-gray-400">
-            Logged in as <span className="text-white font-semibold">Guest</span>
+            Logged in as{' '}
+            <span className="text-white font-semibold">
+              {displayName ? `DJ ${displayName}` : 'Guest'}
+            </span>
           </p>
-          <p className="text-xs text-gray-500 mt-1">
-            <a href="/signup" className="text-green-400 hover:text-green-300 underline">
-              Create an account
-            </a>
-            {' '}to save your settings and get priority voting
-          </p>
+          <div className="mt-2 flex gap-2">
+            <input
+              type="text"
+              value={djNameInput}
+              onChange={(e) => setDjNameInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveDjName()}
+              placeholder="Set your DJ name..."
+              maxLength={MAX_DISPLAY_NAME_LENGTH}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500"
+            />
+            <button
+              onClick={handleSaveDjName}
+              disabled={djNameSaving || !djNameInput.trim()}
+              className="px-3 py-1 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm rounded font-semibold transition-colors"
+            >
+              {djNameSaved ? '✓' : djNameSaving ? '...' : 'Save'}
+            </button>
+          </div>
         </div>
 
         {/* Now Playing */}
