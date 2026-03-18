@@ -3,7 +3,8 @@
  * POST /api/webhooks/stripe
  *
  * Handles payment lifecycle events from Stripe.
- * payment_intent.succeeded → marks Payment as COMPLETED and marks SongRequest as boosted
+ * payment_intent.succeeded → marks Payment as COMPLETED and marks SongRequest as boosted,
+ *   or adds credits to user balance for CREDIT_PURCHASE intents.
  * payment_intent.payment_failed → marks Payment as FAILED
  */
 
@@ -13,6 +14,9 @@ import { findPaymentByStripeId, updatePaymentStatus } from '@/lib/db/payments';
 import { findRequestById, boostRequest } from '@/lib/db/requests';
 import { findSessionById } from '@/lib/db/sessions';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
+import { addCreditsToUser } from '@/lib/db/credits';
+import { prisma } from '@/lib/db/prisma';
+import { CREDIT_BUNDLES, CreditBundleKey } from '@/lib/constants';
 import Stripe from 'stripe';
 
 export async function POST(req: NextRequest) {
@@ -62,6 +66,12 @@ export async function POST(req: NextRequest) {
 }
 
 async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+  // Handle CREDIT_PURCHASE intents (not tracked in Payment table)
+  if (paymentIntent.metadata?.type === 'CREDIT_PURCHASE') {
+    await handleCreditPurchaseSucceeded(paymentIntent);
+    return;
+  }
+
   const payment = await findPaymentByStripeId(paymentIntent.id);
   if (!payment) {
     console.warn('[Stripe Webhook] Payment not found for intent:', paymentIntent.id);
@@ -92,6 +102,41 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
       invalidateQueueCache(session.id);
     }
   }
+}
+
+async function handleCreditPurchaseSucceeded(paymentIntent: Stripe.PaymentIntent) {
+  const userId = paymentIntent.metadata?.userId;
+  if (!userId) {
+    console.warn('[Stripe Webhook] No userId in CREDIT_PURCHASE metadata:', paymentIntent.id);
+    return;
+  }
+
+  // Idempotency check
+  const existingTx = await prisma.creditTransaction.findFirst({
+    where: { userId, paymentId: paymentIntent.id, type: 'PURCHASE' },
+  });
+  if (existingTx) return; // Already processed
+
+  const bundleKey = paymentIntent.metadata?.bundleKey as CreditBundleKey | undefined;
+  const bundle = bundleKey ? CREDIT_BUNDLES.find((b) => b.key === bundleKey) : null;
+  const credits = bundle
+    ? bundle.credits
+    : parseInt(paymentIntent.metadata?.credits ?? '0', 10);
+
+  if (!credits || credits <= 0) {
+    console.warn('[Stripe Webhook] Could not determine credits for intent:', paymentIntent.id);
+    return;
+  }
+
+  await addCreditsToUser(
+    userId,
+    credits,
+    'PURCHASE',
+    bundle ? bundle.label : `${credits} credits purchased`,
+    paymentIntent.id,
+  );
+
+  console.log(`[Stripe Webhook] Added ${credits} credits to user ${userId} via webhook`);
 }
 
 async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
