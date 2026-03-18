@@ -44,6 +44,13 @@ interface SessionData {
   } | null;
   suggestionModeEnabled?: boolean;
   pendingSuggestions?: PendingSuggestion[];
+  anthemAnnouncement?: {
+    type: 'upcoming';
+    title: string;
+    artist: string;
+    promotionText: string | null;
+    isAnthem: boolean;
+  } | null;
 }
 
 export default function SessionPage() {
@@ -329,6 +336,26 @@ export default function SessionPage() {
 
         {/* Now Playing */}
         <NowPlayingUser sessionId={session.id} onPlaybackUpdate={setNowPlayingRemainingMs} />
+
+        {/* Anthem / Sponsor Song "Coming Up Next" Announcement */}
+        {sessionData.anthemAnnouncement && (
+          <div className="bg-amber-900/40 border-2 border-amber-500 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-2xl">{sessionData.anthemAnnouncement.isAnthem ? '🎺' : '⭐'}</span>
+              <p className="text-amber-300 font-bold">
+                {sessionData.anthemAnnouncement.isAnthem ? 'Venue Anthem Coming Up Next!' : 'Sponsor Song Coming Up Next!'}
+              </p>
+            </div>
+            <p className="text-amber-100 text-sm mt-1 pl-9">
+              {sessionData.anthemAnnouncement.title} — {sessionData.anthemAnnouncement.artist}
+            </p>
+            {sessionData.anthemAnnouncement.promotionText && (
+              <p className="text-amber-400 text-sm mt-2 pl-9">
+                🎁 {sessionData.anthemAnnouncement.promotionText}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Song Request Form */}
         <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />

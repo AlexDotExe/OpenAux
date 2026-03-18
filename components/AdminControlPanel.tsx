@@ -12,6 +12,17 @@ interface SpotifyDevice {
   is_active: boolean;
 }
 
+interface SponsorSong {
+  id: string;
+  songId: string;
+  promotionText: string | null;
+  isAnthem: boolean;
+  song: {
+    title: string;
+    artist: string;
+  };
+}
+
 interface QueueItem {
   requestId: string;
   songId: string;
@@ -122,6 +133,74 @@ export function AdminControlPanel({
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
 
+  // Sponsor songs state
+  const [sponsorSongs, setSponsorSongs] = useState<SponsorSong[]>([]);
+  const [sponsorSongsLoading, setSponsorSongsLoading] = useState(false);
+  const [sponsorSongForm, setSponsorSongForm] = useState({
+    songId: '',
+    promotionText: '',
+    isAnthem: false,
+  });
+  const [sponsorSongStatus, setSponsorSongStatus] = useState<string | null>(null);
+
+  const fetchSponsorSongs = useCallback(async () => {
+    setSponsorSongsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/${venueId}/sponsor-songs?adminPassword=${encodeURIComponent(password)}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSponsorSongs(data.sponsorSongs ?? []);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setSponsorSongsLoading(false);
+    }
+  }, [venueId, password]);
+
+  const handleAddSponsorSong = async () => {
+    if (!sponsorSongForm.songId.trim()) return;
+    setSponsorSongStatus(null);
+    try {
+      const res = await fetch(`/api/admin/${venueId}/sponsor-songs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPassword: password,
+          songId: sponsorSongForm.songId.trim(),
+          promotionText: sponsorSongForm.promotionText.trim() || null,
+          isAnthem: sponsorSongForm.isAnthem,
+        }),
+      });
+      if (res.ok) {
+        setSponsorSongStatus('Song added!');
+        setSponsorSongForm({ songId: '', promotionText: '', isAnthem: false });
+        await fetchSponsorSongs();
+        setTimeout(() => setSponsorSongStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setSponsorSongStatus(`Error: ${data.error}`);
+      }
+    } catch {
+      setSponsorSongStatus('Failed to add sponsor song');
+    }
+  };
+
+  const handleRemoveSponsorSong = async (songId: string) => {
+    try {
+      await fetch(`/api/admin/${venueId}/sponsor-songs`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: password, songId }),
+      });
+      await fetchSponsorSongs();
+    } catch {
+      // Ignore
+    }
+  };
+
   const fetchDevices = useCallback(async () => {
     setLoadingDevices(true);
     try {
@@ -142,6 +221,10 @@ export function AdminControlPanel({
       fetchDevices();
     }
   }, [streamingService, isConnected, fetchDevices]);
+
+  useEffect(() => {
+    fetchSponsorSongs();
+  }, [fetchSponsorSongs]);
 
   const handleDisconnect = async () => {
     await fetch(`/api/admin/${venueId}/disconnect`, { method: 'POST' });
@@ -469,6 +552,84 @@ export function AdminControlPanel({
           )}
         </div>
       )}
+
+      {/* Sponsor / Anthem Songs Section */}
+      <div className="space-y-3 border-t border-gray-800 pt-4">
+        <h3 className="text-sm font-medium text-gray-400">Anthem &amp; Sponsor Songs</h3>
+        <p className="text-xs text-gray-500">
+          When these songs come up in the queue or start playing, all users see a special announcement.
+        </p>
+
+        {sponsorSongStatus && (
+          <div className="bg-gray-800 rounded-lg p-2 text-xs text-amber-300">{sponsorSongStatus}</div>
+        )}
+
+        {/* Add sponsor song form */}
+        <div className="space-y-2">
+          <input
+            type="text"
+            placeholder="Song ID (from DB)"
+            value={sponsorSongForm.songId}
+            onChange={(e) => setSponsorSongForm(prev => ({ ...prev, songId: e.target.value }))}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+          />
+          <input
+            type="text"
+            placeholder="Promotion text (e.g. $2 off tequila shots)"
+            value={sponsorSongForm.promotionText}
+            onChange={(e) => setSponsorSongForm(prev => ({ ...prev, promotionText: e.target.value }))}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+          />
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sponsorSongForm.isAnthem}
+                onChange={(e) => setSponsorSongForm(prev => ({ ...prev, isAnthem: e.target.checked }))}
+                className="rounded border-gray-600"
+              />
+              🎺 Mark as Venue Anthem
+            </label>
+            <button
+              onClick={handleAddSponsorSong}
+              disabled={!sponsorSongForm.songId.trim()}
+              className="text-xs bg-amber-700 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded transition-colors"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        {/* Sponsor songs list */}
+        {sponsorSongsLoading ? (
+          <p className="text-xs text-gray-500">Loading...</p>
+        ) : sponsorSongs.length === 0 ? (
+          <p className="text-xs text-gray-500">No sponsor or anthem songs configured.</p>
+        ) : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {sponsorSongs.map((ss) => (
+              <div key={ss.id} className="flex items-start gap-2 bg-gray-800 rounded-lg p-2 text-xs">
+                <span className="text-base shrink-0 mt-0.5">{ss.isAnthem ? '🎺' : '⭐'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{ss.song.title}</p>
+                  <p className="text-gray-400 truncate">{ss.song.artist}</p>
+                  {ss.promotionText && (
+                    <p className="text-amber-400 truncate">🎁 {ss.promotionText}</p>
+                  )}
+                  <p className="text-gray-600 truncate">ID: {ss.songId}</p>
+                </div>
+                <button
+                  onClick={() => handleRemoveSponsorSong(ss.songId)}
+                  className="bg-gray-700 hover:bg-red-900 text-white px-2 py-1 rounded transition-colors shrink-0"
+                  title="Remove"
+                >
+                  🗑
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Pending Suggestions Section */}
       {activeSession && suggestionModeEnabled && (
