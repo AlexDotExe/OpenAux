@@ -58,6 +58,10 @@ function formatWaitTime(ms: number): string {
   return minutes < 1 ? '< 1 min' : `~${minutes} min`;
 }
 
+function formatPrice(price: number): string {
+  return price % 1 === 0 ? `$${price.toFixed(0)}` : `$${price.toFixed(2)}`;
+}
+
 // Inner payment form rendered inside <Elements>
 function StripeBoostForm({
   requestId,
@@ -409,7 +413,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                           : 'bg-yellow-600 hover:bg-yellow-700 text-black'
                       } disabled:opacity-40`}
                     >
-                      ⚡ {boostPrice === 0 ? 'Priority Boost +3 Spots (Free)' : `Priority Boost +3 Spots - $${boostPrice.toFixed(2)}`}
+                      ⚡ {boostPrice === 0 ? `Boost to #${boostedIdx + 1} (Free)` : `Boost to #${boostedIdx + 1} for ${formatPrice(boostPrice)}`}
                     </button>
                     {savingsMs > 0 && (
                       <p className="text-xs text-yellow-400 text-center">
@@ -449,8 +453,8 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                     }}
                   >
                     <p className="text-gray-400 text-sm">
-                      Move this song up 3 spots in the queue for{' '}
-                      <span className="text-yellow-400 font-semibold">${boostPrice.toFixed(2)}</span>.
+                      Move this song to <span className="text-yellow-400 font-semibold">#{boostedIdx + 1}</span> in the queue for{' '}
+                      <span className="text-yellow-400 font-semibold">{formatPrice(boostPrice)}</span>.
                     </p>
                     {savingsMs > 0 && (
                       <p className="text-sm text-yellow-400">
@@ -486,7 +490,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                 !boostStatus ? (
                   <>
                     <p className="text-gray-400">
-                      Boost this song up 3 spots in the queue for free?
+                      Boost this song to <span className="text-green-400 font-semibold">#{boostedIdx + 1}</span> in the queue for free?
                     </p>
                     <p className="text-sm text-gray-500">
                       Songs with votes and a boost jump ahead of similarly-scored songs.
