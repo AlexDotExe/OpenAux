@@ -73,14 +73,21 @@ export async function createVenue(data: {
   adminSpotifyId?: string;
   adminGoogleId?: string;
   adminAuthToken?: string;
+  defaultBoostPrice?: number;
+  maxSongRepeatsPerHour?: number;
+  maxSongsPerUser?: number;
+  monetizationEnabled?: boolean;
+  smartMonetizationEnabled?: boolean;
+  suggestionModeEnabled?: boolean;
+  crowdControlEnabled?: boolean;
   genreProfile?: object;
   bpmRange?: object;
   energyCurveProfile?: object;
   streamingService?: string;
   oauthAccessToken?: string;
-  oauthRefreshToken?: string;
+  oauthRefreshToken?: string | null;
   oauthTokenExpiresAt?: Date;
-  oauthScope?: string;
+  oauthScope?: string | null;
   connectedAccountName?: string | null;
   connectedAccountEmail?: string | null;
 }): Promise<Venue> {
@@ -107,9 +114,9 @@ export async function updateVenueOAuthTokens(
   venueId: string,
   tokens: {
     accessToken: string;
-    refreshToken: string;
+    refreshToken?: string | null;
     expiresAt: Date;
-    scope?: string;
+    scope?: string | null;
     streamingService: string;
     connectedAccountName?: string | null;
     connectedAccountEmail?: string | null;
@@ -119,7 +126,7 @@ export async function updateVenueOAuthTokens(
     where: { id: venueId },
     data: {
       oauthAccessToken: tokens.accessToken,
-      oauthRefreshToken: tokens.refreshToken,
+      oauthRefreshToken: tokens.refreshToken ?? undefined,
       oauthTokenExpiresAt: tokens.expiresAt,
       oauthScope: tokens.scope ?? null,
       streamingService: tokens.streamingService,
@@ -141,6 +148,20 @@ export async function clearVenueOAuthTokens(venueId: string): Promise<Venue> {
       connectedAccountName: null,
       connectedAccountEmail: null,
     },
+  });
+}
+
+export async function updateVenueAdminOAuth(
+  venueId: string,
+  data: {
+    adminSpotifyId?: string | null;
+    adminGoogleId?: string | null;
+    adminAuthToken?: string | null;
+  },
+): Promise<Venue> {
+  return prisma.venue.update({
+    where: { id: venueId },
+    data,
   });
 }
 

@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById, updateVenueSettings } from '@/lib/db/venues';
+import { findVenueById, updateVenueSettings, verifyAdminToken } from '@/lib/db/venues';
 
 interface RouteContext {
   params: Promise<{ venueId: string }>;
@@ -48,7 +48,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Venue not found' }, { status: 404 });
     }
 
-    if (!body.adminPassword || body.adminPassword !== venue.adminPassword) {
+    if (!await verifyAdminToken(venueId, body.adminPassword ?? '')) {
       return NextResponse.json({ error: 'Invalid admin password' }, { status: 401 });
     }
 

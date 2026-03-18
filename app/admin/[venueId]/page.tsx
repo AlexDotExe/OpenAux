@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { AdminControlPanel } from '@/components/AdminControlPanel';
 import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 
@@ -44,14 +45,14 @@ export interface PendingSuggestion {
 export default function AdminPage() {
   const params = useParams<{ venueId: string }>();
   const searchParams = useSearchParams();
-  const [password, setPassword] = useState('');
+  const [adminToken, setAdminToken] = useState('');
   const [authed, setAuthed] = useState(false);
   const [venueData, setVenueData] = useState<VenueData | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [userCount, setUserCount] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
-  const [origin, setOrigin] = useState('');
+  const [origin] = useState(() => (typeof window === 'undefined' ? '' : window.location.origin));
   const [currentYoutubeId, setCurrentYoutubeId] = useState<string | null>(null);
   // Venue settings state
   const [defaultBoostPrice, setDefaultBoostPrice] = useState(5.0);
@@ -79,6 +80,31 @@ export default function AdminPage() {
     completedAt: string | null;
   }>>([]);
 
+  const formatAdminError = useCallback((error: string) => {
+    switch (error) {
+      case 'invalid_state':
+        return 'Your sign-in session expired. Please sign in again.';
+      case 'spotify_denied':
+        return 'Spotify sign-in was cancelled.';
+      case 'google_denied':
+        return 'Google sign-in was cancelled.';
+      case 'spotify_token_failed':
+      case 'google_token_failed':
+        return 'OAuth authorization could not be completed.';
+      case 'spotify_profile_failed':
+      case 'google_profile_failed':
+        return 'The connected account details could not be loaded.';
+      case 'spotify_account_in_use':
+        return 'That Spotify account is already linked to another venue.';
+      case 'google_account_in_use':
+        return 'That Google account is already linked to another venue.';
+      case 'venue_not_found':
+        return 'No venue is linked to that admin account yet.';
+      default:
+        return `Connection failed: ${error}`;
+    }
+  }, []);
+
   const updateSimulatedUsers = async (count: number) => {
     if (!venueData?.activeSession) return;
     try {
@@ -98,24 +124,56 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    setOrigin(window.location.origin);
-    // Auto-authenticate if the password was stored by the sign-in page
-    const stored = sessionStorage.getItem(`adminPassword_${params.venueId}`);
-    if (stored) {
-      setPassword(stored);
+    const getCookie = (name: string) =>
+      document.cookie
+        .split('; ')
+        .find((entry) => entry.startsWith(`${name}=`))
+        ?.split('=')
+        .slice(1)
+        .join('=');
+
+    const pendingToken = getCookie('_pending_admin_auth_token');
+    const pendingVenueId = getCookie('_pending_admin_auth_venue');
+    const pendingProvider = getCookie('_pending_admin_auth_provider');
+    const pendingConnectedProvider = getCookie('_pending_admin_connected_provider');
+
+    const clearPendingCookie = (name: string) => {
+      document.cookie = `${name}=; Max-Age=0; Path=/`;
+    };
+
+    if (pendingToken && pendingVenueId === params.venueId) {
+      sessionStorage.setItem(`adminAuthToken_${params.venueId}`, pendingToken);
+      setAdminToken(pendingToken);
       setAuthed(true);
+      if (pendingConnectedProvider) {
+        setStatus(`Connected to ${pendingConnectedProvider === 'spotify' ? 'Spotify' : 'Google'}!`);
+      } else if (pendingProvider) {
+        setStatus(`Signed in with ${pendingProvider === 'spotify' ? 'Spotify' : 'Google'}.`);
+      }
+    } else {
+      const stored =
+        sessionStorage.getItem(`adminAuthToken_${params.venueId}`) ??
+        sessionStorage.getItem(`adminPassword_${params.venueId}`);
+      if (stored) {
+        setAdminToken(stored);
+        setAuthed(true);
+      }
     }
 
-    // Show connection status from OAuth callback
+    clearPendingCookie('_pending_admin_auth_token');
+    clearPendingCookie('_pending_admin_auth_venue');
+    clearPendingCookie('_pending_admin_auth_provider');
+    clearPendingCookie('_pending_admin_connected_provider');
+
     const connected = searchParams.get('connected');
     if (connected) {
-      setStatus(`Connected to ${connected === 'spotify' ? 'Spotify' : 'YouTube'}!`);
+      setStatus(`Connected to ${connected === 'spotify' ? 'Spotify' : 'Google'}!`);
     }
     const error = searchParams.get('error');
     if (error) {
-      setStatus(`Connection failed: ${error}`);
+      setStatus(formatAdminError(error));
     }
-  }, [params.venueId, searchParams]);
+  }, [formatAdminError, params.venueId, searchParams]);
 
   const loadSettings = useCallback(async () => {
     if (!params.venueId) return;
@@ -140,7 +198,9 @@ export default function AdminPage() {
 
   const loadPendingSuggestions = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`/api/admin/${params.venueId}/suggestions?sessionId=${sessionId}`);
+      const res = await fetch(`/api/admin/${params.venueId}/suggestions?sessionId=${sessionId}`, {
+        headers: { 'x-admin-password': adminToken },
+      });
       if (res.ok) {
         const data = await res.json();
         setPendingSuggestions(data.suggestions ?? []);
@@ -148,7 +208,7 @@ export default function AdminPage() {
     } catch (err) {
       console.error('Failed to load pending suggestions:', err);
     }
-  }, [params.venueId]);
+  }, [adminToken, params.venueId]);
 
   const loadPayments = useCallback(async () => {
     if (!params.venueId) return;
@@ -187,9 +247,11 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (authed) {
-      load();
-      loadSettings(); // Load settings only once on initial auth
-      loadPayments();
+      void (async () => {
+        await load();
+        await loadSettings();
+        await loadPayments();
+      })();
     }
   }, [authed, load, loadSettings, loadPayments]);
 
@@ -199,22 +261,13 @@ export default function AdminPage() {
     return () => clearInterval(interval);
   }, [authed, load]);
 
-  const handleAuth = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Simple client-side auth check for POC
-    // Real admin action calls validate server-side
-    setAuthed(true);
-    setLoading(true);
-    load().finally(() => setLoading(false));
-  };
-
   const sessionAction = async (action: 'start' | 'end') => {
     setLoading(true);
     setStatus(null);
     const res = await fetch(`/api/admin/${params.venueId}/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password, action }),
+      body: JSON.stringify({ adminPassword: adminToken, action }),
     });
     const data = await res.json();
     setStatus(res.ok ? `Session ${action}ed` : `${data.error}`);
@@ -245,7 +298,7 @@ export default function AdminPage() {
     const res = await fetch(`/api/admin/${params.venueId}/requests/${requestId}/skip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password }),
+      body: JSON.stringify({ adminPassword: adminToken }),
     });
     const data = await res.json();
     if (data.service === 'youtube' && data.trackId) {
@@ -288,7 +341,7 @@ export default function AdminPage() {
     await fetch(`/api/admin/${params.venueId}/blacklist`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password, songId }),
+      body: JSON.stringify({ adminPassword: adminToken, songId }),
     });
     await load();
     setLoading(false);
@@ -300,7 +353,7 @@ export default function AdminPage() {
     await fetch(`/api/admin/${params.venueId}/requests/${requestId}/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password }),
+      body: JSON.stringify({ adminPassword: adminToken }),
     });
     await load();
     setLoading(false);
@@ -315,7 +368,7 @@ export default function AdminPage() {
     const res = await fetch(`/api/admin/${params.venueId}/requests/${requestId}/play-now`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password, currentRequestId }),
+      body: JSON.stringify({ adminPassword: adminToken, currentRequestId }),
     });
 
     const data = await res.json();
@@ -332,7 +385,7 @@ export default function AdminPage() {
     await fetch(`/api/admin/${params.venueId}/requests/${requestId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password }),
+      body: JSON.stringify({ adminPassword: adminToken }),
     });
     await load();
     setLoading(false);
@@ -343,7 +396,7 @@ export default function AdminPage() {
     await fetch(`/api/admin/${params.venueId}/requests/${requestId}/reject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password }),
+      body: JSON.stringify({ adminPassword: adminToken }),
     });
     await load();
     setLoading(false);
@@ -356,7 +409,7 @@ export default function AdminPage() {
     await fetch(`/api/admin/${params.venueId}/suggestions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password, action, requestIds, sessionId }),
+      body: JSON.stringify({ adminPassword: adminToken, action, requestIds, sessionId }),
     });
     await load();
     setLoading(false);
@@ -370,7 +423,7 @@ export default function AdminPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          adminPassword: password,
+          adminPassword: adminToken,
           defaultBoostPrice,
           maxSongRepeatsPerHour,
           maxSongsPerUser,
@@ -412,7 +465,7 @@ export default function AdminPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          adminPassword: password,
+          adminPassword: adminToken,
           activePlaylistId: newActivePlaylistId,
           playlistPriority: newPlaylistPriority,
         }),
@@ -425,23 +478,31 @@ export default function AdminPage() {
   if (!authed) {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
-        <div className="max-w-sm w-full space-y-4">
-          <h1 className="text-2xl font-bold text-center">Admin</h1>
-          <form onSubmit={handleAuth} className="space-y-3">
-            <input
-              type="password"
-              placeholder="Admin password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
-            />
-            <button
-              type="submit"
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-lg"
+        <div className="max-w-sm w-full space-y-4 text-center">
+          <h1 className="text-2xl font-bold">Admin Sign In</h1>
+          <p className="text-sm text-gray-400">
+            Use the Spotify or Google account already connected to this venue.
+          </p>
+          <div className="space-y-3">
+            <a
+              href="/api/admin/sign-in/spotify"
+              className="block w-full rounded-lg bg-green-600 hover:bg-green-500 py-2 font-semibold transition-colors"
             >
-              Login
-            </button>
-          </form>
+              Continue with Spotify
+            </a>
+            <a
+              href="/api/admin/sign-in/google"
+              className="block w-full rounded-lg bg-white hover:bg-gray-100 text-gray-950 py-2 font-semibold transition-colors"
+            >
+              Continue with Google
+            </a>
+          </div>
+          <p className="text-sm text-gray-500">
+            Need to start over?{' '}
+            <Link href="/admin/sign-in" className="text-green-400 hover:text-green-300">
+              Go to admin sign in
+            </Link>
+          </p>
         </div>
       </main>
     );
@@ -469,7 +530,7 @@ export default function AdminPage() {
         {/* Unified Control Panel */}
         <AdminControlPanel
           venueId={params.venueId}
-          password={password}
+          password={adminToken}
           origin={origin}
           streamingService={venueData?.streamingService ?? null}
           isConnected={venueData?.isStreamingConnected ?? false}

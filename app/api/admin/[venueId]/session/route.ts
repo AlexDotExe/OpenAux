@@ -19,7 +19,7 @@ export async function POST(
     const body = await req.json().catch(() => ({}));
     const { adminPassword, action } = body;
 
-    const isAdmin = await verifyAdmin(adminPassword ?? '', venueId);
+    const isAdmin = await verifyAdminToken(venueId, adminPassword ?? '');
     if (!isAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

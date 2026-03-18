@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { verifyAdminToken } from '@/lib/db/venues';
 import { updateSponsorSong, deleteSponsorSong } from '@/lib/db/sponsorSongs';
-
-async function verifyAdmin(venueId: string, adminPassword: string): Promise<boolean> {
-  const venue = await findVenueById(venueId);
-  if (!venue) return false;
-  return adminPassword === (venue as { adminPassword?: string }).adminPassword;
-}
 
 /**
  * PUT /api/admin/[venueId]/sponsor-songs/[sponsorSongId]
@@ -21,7 +15,7 @@ export async function PUT(
     const body = await req.json();
     const { adminPassword, promotionText, promotionDurationMinutes, isActive, isAnthem } = body;
 
-    if (!await verifyAdmin(venueId, adminPassword)) {
+    if (!await verifyAdminToken(venueId, adminPassword)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -52,7 +46,7 @@ export async function DELETE(
     const body = await req.json().catch(() => ({}));
     const adminPassword = body.adminPassword ?? req.nextUrl.searchParams.get('adminPassword') ?? '';
 
-    if (!await verifyAdmin(venueId, adminPassword)) {
+    if (!await verifyAdminToken(venueId, adminPassword)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

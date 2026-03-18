@@ -1,39 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminOAuthState, setAdminOAuthStateCookie } from '@/lib/adminAuth';
-import { verifyAdminToken } from '@/lib/db/venues';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const SCOPE = 'https://www.googleapis.com/auth/youtube.readonly';
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ venueId: string }> },
-) {
-  const { venueId } = await params;
+export async function GET(_req: NextRequest) {
   const clientId = process.env.YOUTUBE_CLIENT_ID;
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-  const adminToken = req.headers.get('x-admin-password') ?? '';
 
   if (!clientId || !baseUrl) {
-    return NextResponse.json({ error: 'YouTube not configured' }, { status: 500 });
-  }
-  if (!await verifyAdminToken(venueId, adminToken)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Google not configured' }, { status: 500 });
   }
 
-  const redirectUri = `${baseUrl}/api/admin/callback/youtube`;
-  const state = createAdminOAuthState('connect', 'google', venueId);
-
+  const state = createAdminOAuthState('signin', 'google');
   const authUrl = new URL(GOOGLE_AUTH_URL);
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('client_id', clientId);
   authUrl.searchParams.set('scope', SCOPE);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('redirect_uri', `${baseUrl}/api/admin/callback/youtube`);
   authUrl.searchParams.set('state', state);
   authUrl.searchParams.set('access_type', 'offline');
   authUrl.searchParams.set('prompt', 'consent');
 
-  const response = NextResponse.json({ url: authUrl.toString() });
+  const response = NextResponse.redirect(authUrl.toString());
   setAdminOAuthStateCookie(response, state);
   return response;
 }

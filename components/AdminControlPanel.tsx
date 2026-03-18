@@ -146,6 +146,7 @@ export function AdminControlPanel({
 }: Props) {
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
+  const [settingsExpanded, setSettingsExpanded] = useState(false);
 
   // Sponsor songs state
   const [sponsorSongs, setSponsorSongs] = useState<SponsorSong[]>([]);
@@ -160,9 +161,9 @@ export function AdminControlPanel({
   const fetchSponsorSongs = useCallback(async () => {
     setSponsorSongsLoading(true);
     try {
-      const res = await fetch(
-        `/api/admin/${venueId}/sponsor-songs?adminPassword=${encodeURIComponent(password)}`,
-      );
+      const res = await fetch(`/api/admin/${venueId}/sponsor-songs`, {
+        headers: { 'x-admin-password': password },
+      });
       if (res.ok) {
         const data = await res.json();
         setSponsorSongs(data.sponsorSongs ?? []);
@@ -218,7 +219,9 @@ export function AdminControlPanel({
   const fetchDevices = useCallback(async () => {
     setLoadingDevices(true);
     try {
-      const res = await fetch(`/api/admin/${venueId}/devices`);
+      const res = await fetch(`/api/admin/${venueId}/devices`, {
+        headers: { 'x-admin-password': password },
+      });
       if (res.ok) {
         const data = await res.json();
         setDevices(data.devices ?? []);
@@ -228,7 +231,7 @@ export function AdminControlPanel({
     } finally {
       setLoadingDevices(false);
     }
-  }, [venueId]);
+  }, [password, venueId]);
 
   useEffect(() => {
     if (streamingService === 'spotify' && isConnected) {
@@ -241,15 +244,30 @@ export function AdminControlPanel({
   }, [fetchSponsorSongs]);
 
   const handleDisconnect = async () => {
-    await fetch(`/api/admin/${venueId}/disconnect`, { method: 'POST' });
+    await fetch(`/api/admin/${venueId}/disconnect`, {
+      method: 'POST',
+      headers: { 'x-admin-password': password },
+    });
     onDisconnect();
+  };
+
+  const handleConnect = async (provider: 'spotify' | 'youtube') => {
+    const res = await fetch(`/api/admin/${venueId}/connect/${provider}`, {
+      headers: { 'x-admin-password': password },
+    });
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (data.url) {
+      window.location.assign(data.url);
+    }
   };
 
   const handleTransfer = async (deviceId: string) => {
     await fetch(`/api/admin/${venueId}/playback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'play', trackId: '_transfer', deviceId }),
+      body: JSON.stringify({ adminPassword: password, action: 'play', trackId: '_transfer', deviceId }),
     });
     fetchDevices();
   };
@@ -294,18 +312,20 @@ export function AdminControlPanel({
           <div className="space-y-2">
             <p className="text-gray-400 text-xs">Connect a streaming service to enable music playback.</p>
             <div className="flex gap-2">
-              <a
-                href={`/api/admin/${venueId}/connect/spotify`}
-                className="flex-1 bg-green-700 hover:bg-green-600 text-white text-xs font-semibold py-2 rounded-lg text-center transition-colors"
+              <button
+                type="button"
+                onClick={() => handleConnect('spotify')}
+                className="flex-1 bg-green-700 hover:bg-green-600 text-white text-xs font-semibold py-2 rounded-lg text-center transition-colors cursor-pointer"
               >
                 Spotify
-              </a>
-              <a
-                href={`/api/admin/${venueId}/connect/youtube`}
-                className="flex-1 bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-2 rounded-lg text-center transition-colors"
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConnect('youtube')}
+                className="flex-1 bg-red-700 hover:bg-red-600 text-white text-xs font-semibold py-2 rounded-lg text-center transition-colors cursor-pointer"
               >
-                YouTube
-              </a>
+                Google
+              </button>
             </div>
           </div>
         )}
@@ -393,13 +413,26 @@ export function AdminControlPanel({
 
       {/* Venue Settings Section */}
       <div className="space-y-3 border-t border-gray-800 pt-4">
-        <h3 className="text-sm font-medium text-gray-400">Venue Settings</h3>
+        <button
+          type="button"
+          onClick={() => setSettingsExpanded((current) => !current)}
+          className="w-full flex items-center justify-between text-sm font-medium text-gray-400"
+        >
+          <span>Venue Settings</span>
+          <span>{settingsExpanded ? '−' : '+'}</span>
+        </button>
 
-        {settingsSaveStatus && (
-          <div className="bg-gray-800 rounded-lg p-2 text-xs">{settingsSaveStatus}</div>
+        {!settingsExpanded && (
+          <p className="text-xs text-gray-500">
+            Settings stay collapsed by default here so you can focus on the live controls first.
+          </p>
         )}
 
+        {settingsExpanded && (
         <div className="space-y-3">
+          {settingsSaveStatus && (
+            <div className="bg-gray-800 rounded-lg p-2 text-xs">{settingsSaveStatus}</div>
+          )}
           {/* Smart Monetization Toggle */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -534,6 +567,7 @@ export function AdminControlPanel({
             Save Settings
           </button>
         </div>
+        )}
       </div>
 
       {/* Active Users Section */}
@@ -761,6 +795,7 @@ export function AdminControlPanel({
           <div className="-mx-4 -mb-4">
             <NowPlaying
               venueId={venueId}
+              adminToken={password}
               streamingService={streamingService}
               onTrackEnded={onTrackEnded}
               youtubeVideoId={youtubeVideoId}

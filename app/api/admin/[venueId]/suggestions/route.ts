@@ -21,6 +21,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const { venueId } = await context.params;
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get('sessionId');
+    const adminPassword = req.headers.get('x-admin-password') ?? '';
 
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId query param is required' }, { status: 400 });
@@ -29,6 +30,9 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const venue = await findVenueById(venueId);
     if (!venue) {
       return NextResponse.json({ error: 'Venue not found' }, { status: 404 });
+    }
+    if (!await verifyAdminToken(venueId, adminPassword)) {
+      return NextResponse.json({ error: 'Invalid admin password' }, { status: 401 });
     }
 
     const suggestions = await findPendingSuggestions(sessionId);
