@@ -96,7 +96,16 @@ export async function boostRequest(
       isBoosted: true,
       boostAmount: amount,
       boostPaidAt: new Date(),
+      // Mark as refund-eligible when user paid for the boost
+      isRefundEligible: amount > 0,
     },
+  });
+}
+
+export async function markRequestRefunded(requestId: string): Promise<SongRequest> {
+  return prisma.songRequest.update({
+    where: { id: requestId },
+    data: { isRefunded: true, refundedAt: new Date() },
   });
 }
 

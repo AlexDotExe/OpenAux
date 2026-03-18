@@ -1,11 +1,13 @@
 /**
  * Admin endpoint to mark a request as DELETED (soft delete)
- * Preserves data for analytics and audit trail
+ * Preserves data for analytics and audit trail.
+ * If the request was paid-boosted, issues a Stripe refund automatically.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { findVenueById } from '@/lib/db/venues';
 import { findRequestById, updateRequestStatus } from '@/lib/db/requests';
+import { processBoostRefund } from '@/lib/services/refundService';
 import { prisma } from '@/lib/db/prisma';
 
 export async function POST(
@@ -38,6 +40,13 @@ export async function POST(
 
   // Mark as DELETED
   await updateRequestStatus(requestId, 'DELETED');
+
+  // Issue a refund if the request was paid-boosted
+  if (request.isBoosted && request.isRefundEligible) {
+    processBoostRefund(requestId).catch((err) =>
+      console.error('[DELETE request] Boost refund failed for deleted request:', requestId, err),
+    );
+  }
 
   // Log admin action when crowd control mode is active
   if (venue.crowdControlEnabled) {

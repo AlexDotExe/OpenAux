@@ -18,6 +18,10 @@ const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 // Average pop/club song duration used when actual durationMs is not available in the database.
 const DEFAULT_SONG_DURATION_MS = 3.5 * 60 * 1000;
 
+const REFUND_POLICY_MESSAGE =
+  "If your song doesn't get played, you'll receive a full refund to your original payment method. " +
+  'This is a one-time, immediate payment — no tokens or bulk purchases.';
+
 interface Song {
   requestId: string;
   songId: string;
@@ -60,6 +64,36 @@ function formatWaitTime(ms: number): string {
 
 function formatPrice(price: number): string {
   return price % 1 === 0 ? `$${price.toFixed(0)}` : `$${price.toFixed(2)}`;
+}
+
+/** Small inline "ⓘ" tooltip that shows the refund policy on hover/focus. */
+function RefundPolicyTooltip() {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <span className="relative inline-flex items-center">
+      <button
+        type="button"
+        aria-label="Refund policy information"
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        onFocus={() => setVisible(true)}
+        onBlur={() => setVisible(false)}
+        onClick={() => setVisible((v) => !v)}
+        className="text-gray-400 hover:text-yellow-300 focus:outline-none text-xs leading-none"
+      >
+        ⓘ
+      </button>
+      {visible && (
+        <span
+          role="tooltip"
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-lg bg-gray-800 border border-gray-600 px-3 py-2 text-xs text-gray-200 shadow-lg z-10 pointer-events-none"
+        >
+          {REFUND_POLICY_MESSAGE}
+        </span>
+      )}
+    </span>
+  );
 }
 
 // Inner payment form rendered inside <Elements>
@@ -404,17 +438,20 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                 const savingsMs = currentWaitMs - boostedWaitMs;
                 return (
                   <div className="space-y-1">
-                    <button
-                      onClick={() => handleBoostClick(song.requestId)}
-                      disabled={!!boostingRequestId}
-                      className={`w-full text-sm font-semibold py-2 rounded-lg transition-colors ${
-                        boostPrice === 0
-                          ? 'bg-green-600 hover:bg-green-700 text-white'
-                          : 'bg-yellow-600 hover:bg-yellow-700 text-black'
-                      } disabled:opacity-40`}
-                    >
-                      ⚡ {boostPrice === 0 ? `Boost to #${boostedIdx + 1} (Free)` : `Boost to #${boostedIdx + 1} for ${formatPrice(boostPrice)}`}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleBoostClick(song.requestId)}
+                        disabled={!!boostingRequestId}
+                        className={`flex-1 text-sm font-semibold py-2 rounded-lg transition-colors ${
+                          boostPrice === 0
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'bg-yellow-600 hover:bg-yellow-700 text-black'
+                        } disabled:opacity-40`}
+                      >
+                        ⚡ {boostPrice === 0 ? `Boost to #${boostedIdx + 1} (Free)` : `Boost to #${boostedIdx + 1} for ${formatPrice(boostPrice)}`}
+                      </button>
+                      {boostPrice > 0 && <RefundPolicyTooltip />}
+                    </div>
                     {savingsMs > 0 && (
                       <p className="text-xs text-yellow-400 text-center">
                         Boost to save {formatWaitTime(savingsMs)}
@@ -461,6 +498,9 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                         ⏱ Boost to save {formatWaitTime(savingsMs)}
                       </p>
                     )}
+                    <div className="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-200">
+                      ℹ️ {REFUND_POLICY_MESSAGE}
+                    </div>
                     <StripeBoostForm
                       requestId={selectedRequestId!}
                       userId={currentUserId!}
