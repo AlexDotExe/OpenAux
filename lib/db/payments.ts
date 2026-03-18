@@ -13,6 +13,7 @@ export async function createPayment(data: {
   stripePaymentId?: string;
   venueShareAmount?: number;
   platformShareAmount?: number;
+  requestId?: string;
 }): Promise<Payment> {
   return prisma.payment.create({ data });
 }

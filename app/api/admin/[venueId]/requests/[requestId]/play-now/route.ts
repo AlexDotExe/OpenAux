@@ -43,9 +43,9 @@ export async function POST(
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  // If current request ID provided, skip it
+  // If current request ID provided, skip it (admin-initiated)
   if (currentRequestId) {
-    await advanceToNextSong(request.sessionId, currentRequestId, true);
+    await advanceToNextSong(request.sessionId, currentRequestId, true, true);
   }
 
   // Get song data

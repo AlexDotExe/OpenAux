@@ -3,7 +3,7 @@
  * Business logic for venue sessions (live nights).
  */
 
-import { createSession, endSession, findActiveSession, updateEnergyLevel, findSessionById } from '../db/sessions';
+import { createSession, endSession, findActiveSession, updateEnergyLevel, findSessionById, incrementTotalSongsPlayed } from '../db/sessions';
 import { recordPlayback } from '../db/playback';
 import { updateRequestStatus } from '../db/requests';
 import { selectNextSong, ScoredRequest } from './virtualDjEngine';
@@ -50,6 +50,8 @@ export async function advanceToNextSong(
   sessionId: string,
   currentRequestId?: string,
   wasSkipped = false,
+  skipInitiatedByAdmin = false,
+  skipInitiatedByUserId?: string,
 ): Promise<PlayResult> {
   if (currentRequestId) {
     await updateRequestStatus(currentRequestId, wasSkipped ? 'SKIPPED' : 'PLAYED');
@@ -58,14 +60,20 @@ export async function advanceToNextSong(
     const { prisma } = await import('../db/prisma');
     const req = await prisma.songRequest.findUnique({
       where: { id: currentRequestId },
-      select: { userId: true, songId: true, voteWeight: true, isPreloaded: true },
+      select: { userId: true, songId: true, voteWeight: true, isPreloaded: true, session: { select: { venueId: true } } },
     });
     if (req) {
-      await recordPlayback({
-        sessionId,
-        songId: req.songId,
-        crowdScore: req.voteWeight,
-      });
+      await Promise.all([
+        recordPlayback({
+          sessionId,
+          songId: req.songId,
+          crowdScore: req.voteWeight,
+          venueId: req.session?.venueId,
+          skipInitiatedByAdmin: wasSkipped ? skipInitiatedByAdmin : undefined,
+          skipInitiatedByUserId: wasSkipped ? skipInitiatedByUserId : undefined,
+        }),
+        incrementTotalSongsPlayed(sessionId),
+      ]);
       // Skip reputation update for playlist pre-loaded songs (no real user to credit)
       if (req.userId && !req.isPreloaded) {
         recalculateReputation(req.userId).catch(console.error);

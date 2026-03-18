@@ -8,9 +8,15 @@ export async function POST(
   try {
     const { sessionId } = await params;
     const body = await req.json().catch(() => ({}));
-    const { currentRequestId, wasSkipped } = body;
+    const { currentRequestId, wasSkipped, skipInitiatedByAdmin, skipInitiatedByUserId } = body;
 
-    const result = await advanceToNextSong(sessionId, currentRequestId, wasSkipped);
+    const result = await advanceToNextSong(
+      sessionId,
+      currentRequestId,
+      wasSkipped,
+      skipInitiatedByAdmin ?? false,
+      skipInitiatedByUserId,
+    );
     return NextResponse.json(result);
   } catch (error) {
     console.error('[POST /api/sessions/:sessionId/advance]', error);
