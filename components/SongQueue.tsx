@@ -309,7 +309,11 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
 
       if (res.ok) {
         // Refresh credit balance after deduction
-        const balanceRes = await fetch(`/api/credits/balance?authToken=${encodeURIComponent(authToken)}`);
+        const balanceRes = await fetch('/api/credits/balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ authToken }),
+        });
         if (balanceRes.ok) {
           const balanceData = await balanceRes.json();
           setCreditBalance(balanceData.creditBalance);

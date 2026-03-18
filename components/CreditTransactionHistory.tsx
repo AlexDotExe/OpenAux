@@ -30,7 +30,11 @@ export function CreditTransactionHistory({ onClose }: CreditTransactionHistoryPr
   useEffect(() => {
     if (!authToken) return;
 
-    fetch(`/api/credits/transactions?authToken=${encodeURIComponent(authToken)}`)
+    fetch('/api/credits/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ authToken }),
+    })
       .then((r) => r.json())
       .then((data) => {
         if (data.error) {

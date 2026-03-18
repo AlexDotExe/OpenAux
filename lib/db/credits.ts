@@ -51,8 +51,8 @@ export async function addCreditsToUser(
 
 /**
  * Atomically deduct credits from a user's balance for a boost.
- * Uses a conditional updateMany so that the decrement only happens when
- * the user has sufficient balance — safe against concurrent requests.
+ * Uses an interactive Prisma transaction to atomically check balance,
+ * decrement, and record the transaction — safe against concurrent requests.
  *
  * Throws an error if the balance is insufficient.
  */
@@ -62,33 +62,37 @@ export async function deductCreditsForBoost(
   requestId: string,
   description: string,
 ): Promise<{ newBalance: number; transaction: CreditTransaction }> {
-  // Atomically decrement only if balance is sufficient
-  const result = await prisma.user.updateMany({
-    where: { id: userId, creditBalance: { gte: amount } },
-    data: { creditBalance: { decrement: amount } },
+  return prisma.$transaction(async (tx) => {
+    // Lock and read the user's current balance
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { creditBalance: true },
+    });
+
+    if (!user || user.creditBalance < amount) {
+      throw new Error('Insufficient credit balance');
+    }
+
+    // Decrement balance and create the transaction record atomically
+    const [updatedUser, transaction] = await Promise.all([
+      tx.user.update({
+        where: { id: userId },
+        data: { creditBalance: { decrement: amount } },
+        select: { creditBalance: true },
+      }),
+      tx.creditTransaction.create({
+        data: {
+          userId,
+          amount: -amount, // Negative for debits
+          type: 'BOOST_DEBIT',
+          description,
+          requestId,
+        },
+      }),
+    ]);
+
+    return { newBalance: updatedUser.creditBalance, transaction };
   });
-
-  if (result.count === 0) {
-    throw new Error('Insufficient credit balance');
-  }
-
-  // Fetch the updated balance
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { creditBalance: true },
-  });
-
-  const transaction = await prisma.creditTransaction.create({
-    data: {
-      userId,
-      amount: -amount, // Negative for debits
-      type: 'BOOST_DEBIT',
-      description,
-      requestId,
-    },
-  });
-
-  return { newBalance: user!.creditBalance, transaction };
 }
 
 /**
@@ -100,7 +104,18 @@ export async function refundCreditsForRequest(
   requestId: string,
   description: string,
 ): Promise<{ newBalance: number; transaction: CreditTransaction }> {
-  return addCreditsToUser(userId, amount, 'REFUND', description, undefined);
+  const [updatedUser, transaction] = await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: { creditBalance: { increment: amount } },
+      select: { creditBalance: true },
+    }),
+    prisma.creditTransaction.create({
+      data: { userId, amount, type: 'REFUND', description, requestId },
+    }),
+  ]);
+
+  return { newBalance: updatedUser.creditBalance, transaction };
 }
 
 /**
