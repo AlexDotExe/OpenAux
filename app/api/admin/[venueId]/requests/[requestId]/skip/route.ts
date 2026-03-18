@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { findVenueById, verifyAdminToken } from '@/lib/db/venues';
 import { findRequestById } from '@/lib/db/requests';
 import { advanceToNextSong } from '@/lib/services/sessionService';
 import { prisma } from '@/lib/db/prisma';
@@ -18,10 +18,11 @@ export async function POST(
   const { adminPassword } = body;
 
   // Validate admin auth
-  const venue = await findVenueById(venueId);
-  if (!venue || venue.adminPassword !== adminPassword) {
+  if (!await verifyAdminToken(venueId, adminPassword ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const venue = await findVenueById(venueId);
 
   // Validate request exists
   const request = await findRequestById(requestId);
@@ -30,7 +31,7 @@ export async function POST(
   }
 
   // Log admin action when crowd control mode is active
-  if (venue.crowdControlEnabled) {
+  if (venue?.crowdControlEnabled) {
     await prisma.adminAction.create({
       data: {
         venueId,

@@ -1,5 +1,6 @@
 import { prisma } from './prisma';
 import { Venue } from '@prisma/client';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface SponsorSongInfo {
   id: string;
@@ -27,7 +28,38 @@ export async function findVenueById(id: string): Promise<Venue | null> {
 }
 
 export async function findVenueByAdminUsername(adminUsername: string): Promise<Venue | null> {
-  return prisma.venue.findUnique({ where: { adminUsername } });
+  return prisma.venue.findFirst({ where: { adminUsername } });
+}
+
+export async function findVenueByAdminSpotifyId(adminSpotifyId: string): Promise<Venue | null> {
+  return prisma.venue.findUnique({ where: { adminSpotifyId } });
+}
+
+export async function findVenueByAdminGoogleId(adminGoogleId: string): Promise<Venue | null> {
+  return prisma.venue.findUnique({ where: { adminGoogleId } });
+}
+
+/**
+ * Verify an admin credential against a venue.
+ * Accepts either the legacy adminPassword or the OAuth-issued adminAuthToken.
+ */
+export async function verifyAdminToken(venueId: string, token: string): Promise<boolean> {
+  if (!token) return false;
+  const venue = await findVenueById(venueId);
+  if (!venue) return false;
+  const v = venue as unknown as { adminPassword?: string | null; adminAuthToken?: string | null };
+  return (v.adminPassword != null && token === v.adminPassword) ||
+         (v.adminAuthToken != null && token === v.adminAuthToken);
+}
+
+/**
+ * Rotate the admin auth token for a venue.
+ * Called after every successful OAuth sign-in.
+ */
+export async function rotateAdminAuthToken(venueId: string): Promise<string> {
+  const token = uuidv4();
+  await prisma.venue.update({ where: { id: venueId }, data: { adminAuthToken: token } });
+  return token;
 }
 
 export async function listVenues(): Promise<Venue[]> {
@@ -36,12 +68,21 @@ export async function listVenues(): Promise<Venue[]> {
 
 export async function createVenue(data: {
   name: string;
-  adminUsername: string;
-  adminPassword: string;
+  adminUsername?: string;
+  adminPassword?: string;
+  adminSpotifyId?: string;
+  adminGoogleId?: string;
+  adminAuthToken?: string;
   genreProfile?: object;
   bpmRange?: object;
   energyCurveProfile?: object;
   streamingService?: string;
+  oauthAccessToken?: string;
+  oauthRefreshToken?: string;
+  oauthTokenExpiresAt?: Date;
+  oauthScope?: string;
+  connectedAccountName?: string | null;
+  connectedAccountEmail?: string | null;
 }): Promise<Venue> {
   return prisma.venue.create({ data });
 }

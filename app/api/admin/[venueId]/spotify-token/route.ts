@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { findVenueById, verifyAdminToken } from '@/lib/db/venues';
 import { refreshSpotifyToken } from '@/lib/services/streaming/spotify';
 
 interface RouteContext {
@@ -14,15 +14,15 @@ interface RouteContext {
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const { venueId } = await context.params;
-    const adminPassword = req.headers.get('x-admin-password');
+    const adminPassword = req.headers.get('x-admin-password') ?? '';
+
+    if (!await verifyAdminToken(venueId, adminPassword)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const venue = await findVenueById(venueId);
     if (!venue) {
       return NextResponse.json({ error: 'Venue not found' }, { status: 404 });
-    }
-
-    if (venue.adminPassword !== adminPassword) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     if (!venue.oauthRefreshToken || venue.streamingService !== 'spotify') {

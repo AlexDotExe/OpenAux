@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { findVenueById, verifyAdminToken } from '@/lib/db/venues';
 import { findSessionById } from '@/lib/db/sessions';
 import { findPendingSuggestions, updateRequestStatus } from '@/lib/db/requests';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Venue not found' }, { status: 404 });
     }
 
-    if (adminPassword !== venue.adminPassword) {
+    if (!await verifyAdminToken(venueId, adminPassword)) {
       return NextResponse.json({ error: 'Invalid admin password' }, { status: 401 });
     }
 
