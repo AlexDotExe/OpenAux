@@ -4,17 +4,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { verifyAdminToken } from '@/lib/db/venues';
 import { findPlaylistById, removeSongFromPlaylist } from '@/lib/db/playlists';
 
 interface RouteContext {
   params: Promise<{ venueId: string; playlistId: string; songId: string }>;
-}
-
-async function verifyAdmin(venueId: string, adminPassword: string): Promise<boolean> {
-  const venue = await findVenueById(venueId);
-  if (!venue) return false;
-  return adminPassword === (venue as { adminPassword?: string }).adminPassword;
 }
 
 export async function DELETE(req: NextRequest, context: RouteContext) {
@@ -23,7 +17,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const body = await req.json().catch(() => ({}));
     const { adminPassword } = body;
 
-    if (!await verifyAdmin(venueId, adminPassword ?? '')) {
+    if (!await verifyAdminToken(venueId, adminPassword ?? '')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

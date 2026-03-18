@@ -63,7 +63,9 @@ export function PlaylistManager({
 
   const loadPlaylists = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/${venueId}/playlists`);
+      const res = await fetch(`/api/admin/${venueId}/playlists`, {
+        headers: { 'x-admin-password': password },
+      });
       if (res.ok) {
         const data = await res.json();
         setPlaylists(data.playlists ?? []);
@@ -71,7 +73,7 @@ export function PlaylistManager({
     } catch {
       // Ignore
     }
-  }, [venueId]);
+  }, [venueId, password]);
 
   useEffect(() => {
     loadPlaylists();
@@ -79,7 +81,9 @@ export function PlaylistManager({
 
   const loadPlaylist = async (playlistId: string) => {
     try {
-      const res = await fetch(`/api/admin/${venueId}/playlists/${playlistId}`);
+      const res = await fetch(`/api/admin/${venueId}/playlists/${playlistId}`, {
+        headers: { 'x-admin-password': password },
+      });
       if (res.ok) {
         const data = await res.json();
         setSelectedPlaylist(data.playlist);

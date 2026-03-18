@@ -14,7 +14,17 @@ export async function GET(
     const activeSession = await findActiveSession(venueId);
 
     // Never expose tokens to the client
-    const { oauthAccessToken, oauthRefreshToken, oauthTokenExpiresAt, oauthScope, adminPassword, ...safeVenue } = venue;
+    const {
+      oauthAccessToken,
+      oauthRefreshToken,
+      oauthTokenExpiresAt,
+      oauthScope,
+      adminPassword,
+      adminAuthToken,
+      adminSpotifyId,
+      adminGoogleId,
+      ...safeVenue
+    } = venue;
 
     return NextResponse.json({
       venue: safeVenue,

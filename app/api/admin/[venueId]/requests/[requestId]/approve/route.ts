@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { verifyAdminToken } from '@/lib/db/venues';
 import { findRequestById, updateRequestStatus } from '@/lib/db/requests';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
 import { prisma } from '@/lib/db/prisma';
@@ -22,12 +22,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'adminPassword is required' }, { status: 400 });
     }
 
-    const venue = await findVenueById(venueId);
-    if (!venue) {
-      return NextResponse.json({ error: 'Venue not found' }, { status: 404 });
-    }
-
-    if (body.adminPassword !== venue.adminPassword) {
+    if (!await verifyAdminToken(venueId, body.adminPassword)) {
       return NextResponse.json({ error: 'Invalid admin password' }, { status: 401 });
     }
 

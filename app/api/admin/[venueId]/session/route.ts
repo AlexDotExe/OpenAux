@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { findVenueById, verifyAdminToken } from '@/lib/db/venues';
 import { startSession, stopSession, findActiveSession } from '@/lib/services/sessionService';
 import { findPlaylistById } from '@/lib/db/playlists';
 import { findOrCreateSystemUser } from '@/lib/db/users';
@@ -7,15 +7,8 @@ import { prisma } from '@/lib/db/prisma';
 
 /**
  * Admin-only: Start or end a session for a venue.
- * Protected by simple password check (POC only).
- *
- * Scaling Path: Replace with proper JWT/session-based admin auth.
+ * Protected by admin token check (accepts legacy adminPassword or OAuth adminAuthToken).
  */
-async function verifyAdmin(adminPassword: string, venueId: string): Promise<boolean> {
-  const venue = await findVenueById(venueId);
-  if (!venue) return false;
-  return adminPassword === (venue as { adminPassword?: string }).adminPassword;
-}
 
 export async function POST(
   req: NextRequest,
@@ -26,7 +19,7 @@ export async function POST(
     const body = await req.json().catch(() => ({}));
     const { adminPassword, action } = body;
 
-    const isAdmin = await verifyAdmin(adminPassword ?? '', venueId);
+    const isAdmin = await verifyAdminToken(venueId, adminPassword ?? '');
     if (!isAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

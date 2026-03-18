@@ -1,86 +1,82 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function AdminSignInPage() {
-  const router = useRouter();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+const errorMessages: Record<string, string> = {
+  invalid_state: 'Your sign-in session expired. Please try again.',
+  spotify_denied: 'Spotify sign-in was cancelled.',
+  google_denied: 'Google sign-in was cancelled.',
+  spotify_token_failed: 'Spotify sign-in could not be completed.',
+  google_token_failed: 'Google sign-in could not be completed.',
+  spotify_profile_failed: 'Spotify account details could not be loaded.',
+  google_profile_failed: 'Google account details could not be loaded.',
+  venue_not_found: 'No venue was found for that admin account.',
+  spotify_account_in_use: 'That Spotify account is already linked to another venue.',
+  google_account_in_use: 'That Google account is already linked to another venue.',
+  internal_error: 'Something went wrong while signing you in.',
+};
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? 'Sign in failed');
-      } else {
-        sessionStorage.setItem(`adminPassword_${data.venueId}`, password);
-        router.push(`/admin/${data.venueId}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+function SignInContent() {
+  const searchParams = useSearchParams();
+  const error = searchParams.get('error');
 
   return (
     <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
       <div className="max-w-sm w-full space-y-6">
-        <div className="text-center space-y-1">
+        <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold">🎛️ Admin Sign In</h1>
-          <p className="text-gray-400 text-sm">Sign in to manage your venue</p>
+          <p className="text-gray-400 text-sm">
+            Use the same Spotify or Google authorization you already need for playback.
+          </p>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="block text-sm text-gray-400">Username</label>
-            <input
-              type="text"
-              placeholder="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
-              required
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="block text-sm text-gray-400">Password</label>
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
-              required
-            />
-          </div>
-          {error && (
-            <p className="text-red-400 text-sm text-center">{error}</p>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
+
+        <div className="space-y-3">
+          <a
+            href="/api/admin/sign-in/spotify"
+            className="block w-full rounded-xl bg-green-600 hover:bg-green-500 text-white font-semibold py-3 text-center transition-colors"
           >
-            {loading ? 'Signing in…' : 'Sign In'}
-          </button>
-        </form>
+            Continue with Spotify
+          </a>
+          <a
+            href="/api/admin/sign-in/google"
+            className="block w-full rounded-xl bg-white hover:bg-gray-100 text-gray-950 font-semibold py-3 text-center transition-colors"
+          >
+            Continue with Google
+          </a>
+        </div>
+
+        <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 text-sm text-gray-300">
+          Authorizing here signs you in and connects the streaming account in one step. You can
+          finish venue setup and change settings later from the dashboard.
+        </div>
+
+        {error && (
+          <p className="text-red-400 text-sm text-center">
+            {errorMessages[error] ?? 'Sign-in failed. Please try again.'}
+          </p>
+        )}
+
         <p className="text-center text-sm text-gray-500">
-          New here?{' '}
+          Need a venue?{' '}
           <Link href="/admin/sign-up" className="text-green-400 hover:text-green-300 transition-colors">
-            Create an account →
+            Start here
           </Link>
-        </p>
+         </p>
       </div>
     </main>
+  );
+}
+
+export default function AdminSignInPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
+        <p className="text-gray-400 animate-pulse">Loading...</p>
+      </main>
+    }>
+      <SignInContent />
+    </Suspense>
   );
 }

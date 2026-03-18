@@ -19,6 +19,7 @@ interface PlaybackState {
 
 interface Props {
   venueId: string;
+  adminToken: string;
   streamingService: string | null;
   onTrackEnded?: () => void;
   youtubeVideoId?: string | null;
@@ -30,7 +31,7 @@ function formatTime(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVideoId }: Props) {
+export function NowPlaying({ venueId, adminToken, streamingService, onTrackEnded, youtubeVideoId }: Props) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [previousTrackId, setPreviousTrackId] = useState<string | null>(null);
   const [hasCalledTrackEnded, setHasCalledTrackEnded] = useState(false);
@@ -38,7 +39,9 @@ export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVid
 
   const fetchPlayback = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/${venueId}/playback`);
+      const res = await fetch(`/api/admin/${venueId}/playback`, {
+        headers: { 'x-admin-password': adminToken },
+      });
       if (res.ok) {
         const data = await res.json();
         setPlayback(data.playback);
@@ -46,7 +49,7 @@ export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVid
     } catch {
       // Ignore fetch errors in polling
     }
-  }, [venueId]);
+  }, [adminToken, venueId]);
 
   // Poll playback state for Spotify (every 2s for faster response)
   useEffect(() => {
@@ -99,7 +102,7 @@ export function NowPlaying({ venueId, streamingService, onTrackEnded, youtubeVid
     await fetch(`/api/admin/${venueId}/playback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ adminPassword: adminToken, action }),
     });
     if (action === 'skip') {
       onTrackEnded?.();

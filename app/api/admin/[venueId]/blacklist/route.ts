@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById, blacklistSong } from '@/lib/db/venues';
-
-async function verifyAdmin(venueId: string, adminPassword: string): Promise<boolean> {
-  const venue = await findVenueById(venueId);
-  if (!venue) return false;
-  return adminPassword === (venue as { adminPassword?: string }).adminPassword;
-}
+import { verifyAdminToken, blacklistSong } from '@/lib/db/venues';
 
 export async function POST(
   req: NextRequest,
@@ -16,7 +10,7 @@ export async function POST(
     const body = await req.json();
     const { adminPassword, songId } = body;
 
-    if (!await verifyAdmin(venueId, adminPassword)) {
+    if (!await verifyAdminToken(venueId, adminPassword ?? '')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

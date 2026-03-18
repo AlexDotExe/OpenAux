@@ -44,7 +44,9 @@ export function SponsorSongsManager({ venueId, password, loading: parentLoading 
   const loadSponsorSongs = useCallback(async () => {
     setLoadingList(true);
     try {
-      const res = await fetch(`/api/admin/${venueId}/sponsor-songs?adminPassword=${encodeURIComponent(password)}`);
+      const res = await fetch(`/api/admin/${venueId}/sponsor-songs`, {
+        headers: { 'x-admin-password': password },
+      });
       if (res.ok) {
         const data = await res.json();
         setSponsorSongs(data.sponsorSongs ?? []);

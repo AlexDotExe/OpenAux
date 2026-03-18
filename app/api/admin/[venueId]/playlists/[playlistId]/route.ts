@@ -6,22 +6,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { verifyAdminToken } from '@/lib/db/venues';
 import { findPlaylistById, updatePlaylist, deletePlaylist } from '@/lib/db/playlists';
 
 interface RouteContext {
   params: Promise<{ venueId: string; playlistId: string }>;
 }
 
-async function verifyAdmin(venueId: string, adminPassword: string): Promise<boolean> {
-  const venue = await findVenueById(venueId);
-  if (!venue) return false;
-  return adminPassword === (venue as { adminPassword?: string }).adminPassword;
-}
-
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
     const { venueId, playlistId } = await context.params;
+    const adminPassword = req.headers.get('x-admin-password') ?? '';
+    if (!await verifyAdminToken(venueId, adminPassword)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const playlist = await findPlaylistById(playlistId);
     if (!playlist || playlist.venueId !== venueId) {
       return NextResponse.json({ error: 'Playlist not found' }, { status: 404 });
@@ -39,7 +37,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const body = await req.json().catch(() => ({}));
     const { adminPassword, name } = body;
 
-    if (!await verifyAdmin(venueId, adminPassword ?? '')) {
+    if (!await verifyAdminToken(venueId, adminPassword ?? '')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -66,7 +64,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     const body = await req.json().catch(() => ({}));
     const { adminPassword } = body;
 
-    if (!await verifyAdmin(venueId, adminPassword ?? '')) {
+    if (!await verifyAdminToken(venueId, adminPassword ?? '')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

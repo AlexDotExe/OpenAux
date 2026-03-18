@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { verifyAdminToken } from '@/lib/db/venues';
 import { getSponsorSongs, createSponsorSong } from '@/lib/db/sponsorSongs';
 import { prisma } from '@/lib/db/prisma';
-
-async function verifyAdmin(venueId: string, adminPassword: string): Promise<boolean> {
-  const venue = await findVenueById(venueId);
-  if (!venue) return false;
-  return adminPassword === (venue as { adminPassword?: string }).adminPassword;
-}
 
 /**
  * GET /api/admin/[venueId]/sponsor-songs
@@ -21,7 +15,7 @@ export async function GET(
     const { venueId } = await params;
     const adminPassword = req.headers.get('x-admin-password') ?? req.nextUrl.searchParams.get('adminPassword') ?? '';
 
-    if (!await verifyAdmin(venueId, adminPassword)) {
+    if (!await verifyAdminToken(venueId, adminPassword)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -59,7 +53,7 @@ export async function POST(
       isAnthem,
     } = body;
 
-    if (!await verifyAdmin(venueId, adminPassword)) {
+    if (!await verifyAdminToken(venueId, adminPassword)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

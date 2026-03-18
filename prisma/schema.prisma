@@ -98,8 +98,11 @@ model Venue {
   // energyCurveProfile: defines how energy should evolve over a night
   // e.g. {"earlyNight": 0.4, "peakHour": 1.0, "lateNight": 0.7}
   energyCurveProfile Json @default("{\"earlyNight\": 0.4, \"peakHour\": 1.0, \"lateNight\": 0.7}")
-  adminUsername String   @unique
-  adminPassword String
+  adminUsername String?  @unique  // null for OAuth-only admins
+  adminPassword String?           // null for OAuth-only admins; used as legacy credential
+  adminAuthToken String? @unique  // Rotated session token issued after OAuth sign-in
+  adminSpotifyId String? @unique  // Spotify user ID used to identify this admin
+  adminGoogleId  String? @unique  // Google user ID used to identify this admin
   // streamingService: 'spotify' | 'youtube' | null — validated at the API layer
   streamingService      String?
   oauthAccessToken      String?
@@ -151,7 +154,6 @@ model Venue {
   playbacks        PlaybackHistory[]
 
   @@index([name])
-  @@index([adminUsername])
 }
 
 model Song {

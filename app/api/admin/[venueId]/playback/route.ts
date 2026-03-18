@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyAdminToken } from '@/lib/db/venues';
 import { getStreamingServiceForVenue } from '@/lib/services/streaming';
 
 /**
  * GET: Returns current playback state
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ venueId: string }> },
 ) {
   try {
     const { venueId } = await params;
+    const adminPassword = req.headers.get('x-admin-password') ?? '';
+    if (!await verifyAdminToken(venueId, adminPassword)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const service = await getStreamingServiceForVenue(venueId);
     if (!service) {
       return NextResponse.json({ error: 'No streaming service connected' }, { status: 404 });
@@ -34,7 +39,11 @@ export async function POST(
   try {
     const { venueId } = await params;
     const body = await req.json();
-    const { action, trackId, deviceId } = body;
+    const { adminPassword, action, trackId, deviceId } = body;
+
+    if (!await verifyAdminToken(venueId, adminPassword ?? '')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const service = await getStreamingServiceForVenue(venueId);
     if (!service) {
