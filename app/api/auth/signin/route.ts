@@ -3,9 +3,16 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { findUserByEmail, updateUserAuthToken } from '@/lib/db/users';
 
-// Pre-hashed dummy password for constant-time comparison when user is not found
-// This prevents timing attacks that could enumerate registered email addresses
-const DUMMY_HASH = '$2a$12$dummy.hash.for.timing.protection.only.do.not.use';
+// Lazily-computed dummy hash used for constant-time comparison when user is not found.
+// Prevents timing attacks that could enumerate registered email addresses.
+// Initialized on first sign-in request (avoids blocking module load).
+let dummyHashPromise: Promise<string> | null = null;
+const getDummyHash = (): Promise<string> => {
+  if (!dummyHashPromise) {
+    dummyHashPromise = bcrypt.hash('openauxdummypasswordfortimingprotection', 12);
+  }
+  return dummyHashPromise;
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,7 +27,7 @@ export async function POST(req: NextRequest) {
     const user = await findUserByEmail(normalizedEmail);
     if (!user || !user.passwordHash) {
       // Always run bcrypt to prevent timing-based user enumeration
-      await bcrypt.compare(password, DUMMY_HASH);
+      await bcrypt.compare(password, await getDummyHash());
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
