@@ -8,6 +8,7 @@ import { SongRequestForm } from '@/components/SongRequestForm';
 import { SongQueue } from '@/components/SongQueue';
 import { NowPlayingUser } from '@/components/NowPlayingUser';
 import { SessionExpiryWarning } from '@/components/SessionExpiryWarning';
+import { SponsorSongBanner } from '@/components/SponsorSongBanner';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/lib/constants';
 
 interface PendingSuggestion {
@@ -16,6 +17,20 @@ interface PendingSuggestion {
   artist: string;
   userId: string;
   createdAt: string;
+}
+
+interface ActivePromotion {
+  id: string;
+  promotionText: string | null;
+  promotionDurationMinutes: number;
+  promotionActivatedAt: string;
+  promotionExpiresAt: string;
+  isAnthem: boolean;
+  song: {
+    title: string;
+    artist: string;
+    albumArtUrl?: string | null;
+  };
 }
 
 interface SessionData {
@@ -44,6 +59,7 @@ interface SessionData {
   } | null;
   suggestionModeEnabled?: boolean;
   pendingSuggestions?: PendingSuggestion[];
+  activePromotion?: ActivePromotion | null;
 }
 
 export default function SessionPage() {
@@ -329,6 +345,9 @@ export default function SessionPage() {
 
         {/* Now Playing */}
         <NowPlayingUser sessionId={session.id} onPlaybackUpdate={setNowPlayingRemainingMs} />
+
+        {/* Active Sponsor Promotion Banner */}
+        <SponsorSongBanner activePromotion={sessionData.activePromotion ?? null} />
 
         {/* Song Request Form */}
         <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { NowPlaying } from './NowPlaying';
+import { SponsorSongsManager } from './SponsorSongsManager';
 import type { PendingSuggestion } from '@/app/admin/[venueId]/page';
 
 interface SpotifyDevice {
@@ -535,6 +536,13 @@ export function AdminControlPanel({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Sponsor Songs Section */}
+      {activeSession && (
+        <div className="space-y-3 border-t border-gray-800 pt-4">
+          <SponsorSongsManager venueId={venueId} password={password} loading={loading} />
         </div>
       )}
 
