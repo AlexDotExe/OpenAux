@@ -58,7 +58,7 @@ enum AdminActionType {
 
 model User {
   id                String        @id @default(uuid())
-  deviceFingerprint String        @unique
+  deviceFingerprint String?       @unique  // Nullable: auth users may not have a device fingerprint
   displayName       String?       // Optional DJ name shown on "DJ Alex is playing..." (#22)
   // reputationScore: derived from approval rates of submitted songs
   // Higher score = more influence weight in voting
@@ -68,6 +68,15 @@ model User {
   // Prepaid credits balance (#12)
   creditBalance     Float         @default(0.0)
   createdAt         DateTime      @default(now())
+
+  // ── Optional auth fields (sign-in mechanism) ──
+  email             String?       @unique  // Unique email for email/password sign-in
+  passwordHash      String?               // bcrypt hash; null for OAuth-only accounts
+  instagramId       String?       @unique  // Instagram user ID (from OAuth)
+  spotifyUserId     String?       @unique  // Spotify user ID (from OAuth)
+  authProvider      String?               // 'email' | 'instagram' | 'spotify' | null (null = guest)
+  authToken         String?       @unique  // Session token; rotated on each sign-in
+
   requests          SongRequest[]
   votes             Vote[]
   sessions          UserSession[]
@@ -75,6 +84,8 @@ model User {
   payments          Payment[]
 
   @@index([deviceFingerprint])
+  @@index([email])
+  @@index([authToken])
 }
 
 model Venue {

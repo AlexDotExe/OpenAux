@@ -24,6 +24,10 @@ export interface Song {
   userId?: string;
 }
 
+// Storage keys
+const STORAGE_KEY_FINGERPRINT = 'vdj_device_fp';
+const STORAGE_KEY_AUTH_TOKEN = 'vdj_auth_token';
+
 export interface SessionState {
   // User identity (anonymous, device-based)
   deviceFingerprint: string | null;
@@ -31,6 +35,13 @@ export interface SessionState {
   displayName: string | null;
   influenceWeight: number;
   reputationScore: number;
+
+  // Auth state
+  isAuthenticated: boolean;
+  authToken: string | null;
+  authEmail: string | null;
+  authProvider: string | null; // 'email' | 'instagram' | 'spotify' | null
+  creditBalance: number;
 
   // Session data
   sessionId: string | null;
@@ -50,6 +61,21 @@ export interface SessionState {
   setQueue: (queue: Song[]) => void;
   setNowPlaying: (song: Song | null) => void;
   updateUserVote: (requestId: string, vote: 1 | -1) => void;
+
+  // Auth actions
+  setAuthUser: (params: {
+    userId: string;
+    authToken: string;
+    email: string | null;
+    authProvider: string | null;
+    displayName: string | null;
+    reputationScore: number;
+    influenceWeight: number;
+    creditBalance: number;
+    stayLoggedIn: boolean;
+  }) => void;
+  clearAuthUser: () => void;
+  loadAuthFromStorage: () => string | null;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -58,6 +84,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   displayName: null,
   influenceWeight: 1.0,
   reputationScore: 1.0,
+  isAuthenticated: false,
+  authToken: null,
+  authEmail: null,
+  authProvider: null,
+  creditBalance: 0,
   sessionId: null,
   venueId: null,
   energyLevel: 0.5,
@@ -67,10 +98,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   initDevice: () => {
     if (typeof window === 'undefined') return '';
-    let fp = localStorage.getItem('vdj_device_fp');
+    let fp = localStorage.getItem(STORAGE_KEY_FINGERPRINT);
     if (!fp) {
       fp = uuidv4();
-      localStorage.setItem('vdj_device_fp', fp);
+      localStorage.setItem(STORAGE_KEY_FINGERPRINT, fp);
     }
     set({ deviceFingerprint: fp });
     return fp;
@@ -94,4 +125,44 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         s.requestId === requestId ? { ...s, userVote: vote } : s,
       ),
     })),
+
+  setAuthUser: ({ userId, authToken, email, authProvider, displayName, reputationScore, influenceWeight, creditBalance, stayLoggedIn }) => {
+    if (typeof window !== 'undefined') {
+      const storage = stayLoggedIn ? localStorage : sessionStorage;
+      storage.setItem(STORAGE_KEY_AUTH_TOKEN, authToken);
+    }
+    set({
+      userId,
+      authToken,
+      authEmail: email,
+      authProvider,
+      displayName,
+      reputationScore,
+      influenceWeight,
+      creditBalance,
+      isAuthenticated: true,
+    });
+  },
+
+  clearAuthUser: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY_AUTH_TOKEN);
+      sessionStorage.removeItem(STORAGE_KEY_AUTH_TOKEN);
+    }
+    set({
+      isAuthenticated: false,
+      authToken: null,
+      authEmail: null,
+      authProvider: null,
+    });
+  },
+
+  loadAuthFromStorage: () => {
+    if (typeof window === 'undefined') return null;
+    const token =
+      localStorage.getItem(STORAGE_KEY_AUTH_TOKEN) ||
+      sessionStorage.getItem(STORAGE_KEY_AUTH_TOKEN);
+    return token;
+  },
 }));
+

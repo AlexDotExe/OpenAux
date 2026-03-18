@@ -9,6 +9,8 @@ import { SongQueue } from '@/components/SongQueue';
 import { NowPlayingUser } from '@/components/NowPlayingUser';
 import { SessionExpiryWarning } from '@/components/SessionExpiryWarning';
 import { SponsorSongBanner } from '@/components/SponsorSongBanner';
+import { AuthModal } from '@/components/AuthModal';
+import { UserProfileMenu } from '@/components/UserProfileMenu';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/lib/constants';
 
 interface PendingSuggestion {
@@ -72,7 +74,7 @@ interface SessionData {
 
 export default function SessionPage() {
   const params = useParams<{ sessionId: string }>();
-  const { initDevice, setUser, setSession, setQueue, deviceFingerprint, queue, influenceWeight, userId, displayName, setDisplayName } =
+  const { initDevice, setUser, setSession, setQueue, deviceFingerprint, queue, influenceWeight, userId, displayName, setDisplayName, isAuthenticated, setAuthUser, loadAuthFromStorage } =
     useSessionStore();
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,6 +87,7 @@ export default function SessionPage() {
   const [djNameSaving, setDjNameSaving] = useState(false);
   const [djNameSaved, setDjNameSaved] = useState(false);
   const [nowPlayingRemainingMs, setNowPlayingRemainingMs] = useState<number>(0);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   // Track recently approved/rejected suggestions for user notifications
   const [approvedNotifications, setApprovedNotifications] = useState<{ title: string; artist: string }[]>([]);
   const [rejectedNotifications, setRejectedNotifications] = useState<{ title: string; artist: string }[]>([]);
@@ -182,6 +185,120 @@ export default function SessionPage() {
   }, [sessionData]);
 
   useEffect(() => {
+    // Handle OAuth callback: pick up auth token from short-lived cookie
+    // (set by the callback route to avoid token exposure in URL / browser history)
+    const getCookie = (name: string) =>
+      document.cookie.split('; ').find(r => r.startsWith(`${name}=`))?.split('=').slice(1).join('=');
+
+    const pendingToken = getCookie('_pending_auth_token');
+    const pendingProvider = getCookie('_pending_auth_provider');
+    const pendingUserId = getCookie('_pending_auth_user_id');
+    const pendingNonce = getCookie('_pending_auth_nonce');
+
+    if (pendingToken && pendingUserId) {
+      // Verify CSRF nonce if present
+      const storedNonce = sessionStorage.getItem('oauth_nonce');
+      if (pendingNonce && storedNonce && pendingNonce !== storedNonce) {
+        console.error('[Auth] OAuth nonce mismatch — possible CSRF attack');
+        document.cookie = '_pending_auth_token=; Max-Age=0; Path=/';
+        document.cookie = '_pending_auth_provider=; Max-Age=0; Path=/';
+        document.cookie = '_pending_auth_user_id=; Max-Age=0; Path=/';
+        document.cookie = '_pending_auth_nonce=; Max-Age=0; Path=/';
+        sessionStorage.removeItem('oauth_nonce');
+        return;
+      }
+
+      // Clear the pending cookies and nonce immediately
+      document.cookie = '_pending_auth_token=; Max-Age=0; Path=/';
+      document.cookie = '_pending_auth_provider=; Max-Age=0; Path=/';
+      document.cookie = '_pending_auth_user_id=; Max-Age=0; Path=/';
+      document.cookie = '_pending_auth_nonce=; Max-Age=0; Path=/';
+      sessionStorage.removeItem('oauth_nonce');
+
+      // Fetch full user info and store token (default: session-only since we can't
+      // know the stayLoggedIn preference from the OAuth redirect)
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${pendingToken}` },
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.userId) {
+            setAuthUser({
+              userId: data.userId,
+              authToken: pendingToken,
+              email: data.email ?? null,
+              authProvider: pendingProvider ?? data.authProvider ?? null,
+              displayName: data.displayName ?? null,
+              reputationScore: data.reputationScore,
+              influenceWeight: data.influenceWeight,
+              creditBalance: data.creditBalance,
+              stayLoggedIn: false, // OAuth sign-in defaults to session-only storage
+            });
+            setDjNameInput(data.displayName ?? '');
+            // Join the session with the authenticated user ID
+            return fetch(`/api/sessions/${params.sessionId}/join`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: data.userId }),
+            });
+          }
+        })
+        .then((r) => r?.json())
+        .then((userSession) => {
+          if (userSession) {
+            setExpiresAt(userSession.expiresAt);
+            setIsExpired(userSession.isExpired);
+          }
+        })
+        .catch(console.error);
+      return;
+    }
+
+    // Check for a stored auth token from a previous session
+    const storedToken = loadAuthFromStorage();
+    if (storedToken) {
+      // Determine if the token was stored persistently (localStorage) or temporarily (sessionStorage)
+      const isPersistent =
+        typeof window !== 'undefined' &&
+        localStorage.getItem('vdj_auth_token') === storedToken;
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${storedToken}` },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data?.userId) {
+            setAuthUser({
+              userId: data.userId,
+              authToken: storedToken,
+              email: data.email ?? null,
+              authProvider: data.authProvider ?? null,
+              displayName: data.displayName ?? null,
+              reputationScore: data.reputationScore,
+              influenceWeight: data.influenceWeight,
+              creditBalance: data.creditBalance,
+              stayLoggedIn: isPersistent,
+            });
+            setDjNameInput(data.displayName ?? '');
+            return fetch(`/api/sessions/${params.sessionId}/join`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: data.userId }),
+            });
+          }
+          // Token invalid; fall back to device fingerprint
+          return null;
+        })
+        .then((r) => r?.json())
+        .then((userSession) => {
+          if (userSession) {
+            setExpiresAt(userSession.expiresAt);
+            setIsExpired(userSession.isExpired);
+          }
+        })
+        .catch(console.error);
+      return;
+    }
+
     const fp = initDevice();
     // Ensure user is registered, then join the session
     fetch('/api/users', {
@@ -206,7 +323,11 @@ export default function SessionPage() {
         setIsExpired(userSession.isExpired);
       })
       .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.sessionId]);
 
+  // Session polling and initial load
+  useEffect(() => {
     loadSession()
       .then(() => {
         setSession(params.sessionId, '', 0.5);
@@ -218,7 +339,7 @@ export default function SessionPage() {
     // Scaling Path: Replace with WebSocket subscription
     const interval = setInterval(loadSession, 5000);
     return () => clearInterval(interval);
-  }, [params.sessionId, initDevice, setUser, setSession, loadSession]);
+  }, [params.sessionId, setSession, loadSession]);
 
   const handleSaveDjName = async () => {
     if (!userId || !djNameInput.trim()) return;
@@ -283,28 +404,48 @@ export default function SessionPage() {
       {/* Session Expired / Expiry Warning */}
       <SessionExpiryWarning expiresAt={expiresAt} isExpired={isExpired} />
 
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <AuthModal
+          onClose={() => setShowAuthModal(false)}
+          returnUrl={`/session/${params.sessionId}`}
+        />
+      )}
+
       {/* Header */}
       <div className="sticky top-0 bg-gray-950/90 backdrop-blur border-b border-gray-800 p-4">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <Link href="/" className="text-lg font-bold text-green-400 hover:text-green-300 transition-colors">
             OpenAux
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <span className="text-sm text-gray-300 font-semibold">
               🎵 {sessionData.venueName || 'Live Session'}
             </span>
+            {isAuthenticated ? (
+              <UserProfileMenu />
+            ) : (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="text-xs font-semibold text-gray-400 hover:text-green-400 transition-colors border border-gray-700 hover:border-green-600 rounded-lg px-2.5 py-1"
+              >
+                Sign In
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       <div className="max-w-md mx-auto p-4 space-y-6">
-        {/* Guest Status */}
+        {/* Guest / DJ name section */}
         <div className="bg-gray-900 rounded-xl p-3">
           <p className="text-sm text-gray-400">
-            Logged in as{' '}
-            <span className="text-white font-semibold">
-              {displayName ? `DJ ${displayName}` : 'Guest'}
-            </span>
+            {isAuthenticated ? (
+              <>Signed in as <span className="text-green-400 font-semibold">{displayName ? `DJ ${displayName}` : 'you'}</span></>
+            ) : (
+              <>Playing as <span className="text-white font-semibold">{displayName ? `DJ ${displayName}` : 'Guest'}</span>{' '}
+              — <button onClick={() => setShowAuthModal(true)} className="text-green-400 hover:text-green-300 underline underline-offset-2">sign in</button> to save your stats</>
+            )}
           </p>
           <div className="mt-2 flex gap-2">
             <input
