@@ -68,6 +68,12 @@ const DEFAULT_CONFIG: DjEngineConfig = {
  * Score = SUM(vote.value × vote.weight)
  *       × energyAdjustment
  *       × crowdFactor
+ *       × uniquenessBonus
+ *
+ * uniquenessBonus rewards songs that few other users have requested in this
+ * session. Rare/unique requests are harder to organically gather votes for, so
+ * a small multiplier prevents them from being unfairly buried.  The bonus is
+ * capped so it cannot inflate a song above well-voted alternatives.
  *
  * Note: boost does not affect the score directly — boosted songs are moved
  * up BOOST_POSITIONS spots in the final sorted queue via applyBoostPositions().
@@ -79,6 +85,7 @@ export function calculateRequestScore(
   energyLevel: number,
   totalVoters: number,
   config: DjEngineConfig = DEFAULT_CONFIG,
+  totalSessionRequestsForSong = 1,
 ): number {
   // Base score: sum of weighted votes
   const baseScore = request.votes.reduce((sum, v) => sum + v.value * v.weight, 0);
@@ -97,7 +104,13 @@ export function calculateRequestScore(
   // Crowd size factor: slightly boosts all scores in large crowds
   const crowdFactor = 1 + Math.log1p(totalVoters) * config.crowdSizeFactor;
 
-  return baseScore * energyAdjustment * crowdFactor;
+  // Uniqueness bonus: songs requested by fewer users get a small boost (max 20%)
+  // This prevents popular/common songs from completely drowning out unique requests.
+  // uniquenessScore = 1 / totalSessionRequestsForSong, capped naturally to [0, 1]
+  const uniquenessScore = 1.0 / Math.max(1, totalSessionRequestsForSong);
+  const uniquenessBonus = 1.0 + uniquenessScore * 0.2;
+
+  return baseScore * energyAdjustment * crowdFactor * uniquenessBonus;
 }
 
 /**
@@ -220,13 +233,25 @@ export async function selectNextSong(
   );
   const totalVoters = allVoterIds.size;
 
+  // Build a map of songId -> number of requests in this session for uniqueness bonus
+  const songRequestCounts = new Map<string, number>();
+  for (const req of requests) {
+    songRequestCounts.set(req.songId, (songRequestCounts.get(req.songId) ?? 0) + 1);
+  }
+
   // Score each eligible request
   const scored = eligible.map((req) => ({
     requestId: req.id,
     songId: req.songId,
     title: req.song.title,
     artist: req.song.artist,
-    score: calculateRequestScore(req, session.currentEnergyLevel, totalVoters, config),
+    score: calculateRequestScore(
+      req,
+      session.currentEnergyLevel,
+      totalVoters,
+      config,
+      songRequestCounts.get(req.songId) ?? 1,
+    ),
     voteCount: req.votes.length,
     durationMs: req.song.durationMs ?? undefined,
     isBoosted: req.isBoosted,
@@ -296,12 +321,24 @@ export async function getRankedQueue(sessionId: string, skipCache = false): Prom
   const allVoterIds = new Set(requests.flatMap((r) => r.votes.map((_, i) => `${r.id}-${i}`)));
   const totalVoters = allVoterIds.size;
 
+  // Build a map of songId -> number of requests in this session for uniqueness bonus
+  const songRequestCounts = new Map<string, number>();
+  for (const req of requests) {
+    songRequestCounts.set(req.songId, (songRequestCounts.get(req.songId) ?? 0) + 1);
+  }
+
   const scored = eligible.map((req) => ({
     requestId: req.id,
     songId: req.songId,
     title: req.song.title,
     artist: req.song.artist,
-    score: calculateRequestScore(req, session.currentEnergyLevel, totalVoters),
+    score: calculateRequestScore(
+      req,
+      session.currentEnergyLevel,
+      totalVoters,
+      DEFAULT_CONFIG,
+      songRequestCounts.get(req.songId) ?? 1,
+    ),
     voteCount: req.votes.length,
     durationMs: req.song.durationMs ?? undefined,
     isBoosted: req.isBoosted,

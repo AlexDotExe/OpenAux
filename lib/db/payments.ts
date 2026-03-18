@@ -53,3 +53,42 @@ export async function findCompletedPaymentByRequestId(requestId: string): Promis
     orderBy: { createdAt: 'desc' },
   });
 }
+
+export async function findRefundsByVenue(venueId: string): Promise<Payment[]> {
+  return prisma.payment.findMany({
+    where: { venueId, type: 'BOOST', status: 'REFUNDED' },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+/**
+ * Find all completed (unpaid-back) boost payments for requests in a session
+ * that have not been played (status PENDING or APPROVED) and are not yet refunded.
+ * Used to auto-refund unplayed songs when a session ends.
+ */
+export async function findUnplayedBoostPaymentsBySession(
+  sessionId: string,
+): Promise<(Payment & { requestId: string; songId: string })[]> {
+  const results = await prisma.payment.findMany({
+    where: {
+      type: 'BOOST',
+      status: 'COMPLETED',
+      requestId: { not: null },
+      request: {
+        sessionId,
+        status: { in: ['PENDING', 'APPROVED'] },
+        isRefunded: false,
+        isRefundEligible: true,
+      },
+    },
+    include: {
+      request: { select: { songId: true } },
+    },
+  });
+  // Filter out rows where requestId is null (type-guard) and attach songId for efficiency
+  return results
+    .filter((p): p is typeof p & { requestId: string; request: { songId: string } } =>
+      p.requestId !== null && p.request !== null,
+    )
+    .map((p) => ({ ...p, songId: p.request!.songId }));
+}

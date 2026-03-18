@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { findVenueById } from '@/lib/db/venues';
 import { findRequestById, updateRequestStatus } from '@/lib/db/requests';
 import { processBoostRefund } from '@/lib/services/refundService';
+import { recalculateReputation } from '@/lib/services/userService';
 import { prisma } from '@/lib/db/prisma';
 
 export async function POST(
@@ -41,10 +42,19 @@ export async function POST(
   // Mark as DELETED
   await updateRequestStatus(requestId, 'DELETED');
 
-  // Issue a refund if the request was paid-boosted
+  // Issue a refund if the request was paid-boosted.
+  // applyScorePenalty=true: apply reputation hit since recalculateReputation
+  // is not called for deleted (never-played) requests.
   if (request.isBoosted && request.isRefundEligible) {
-    processBoostRefund(requestId).catch((err) =>
+    processBoostRefund(requestId, true).catch((err) =>
       console.error('[DELETE request] Boost refund failed for deleted request:', requestId, err),
+    );
+  }
+
+  // Update the requester's reputation to reflect this interaction even without playback.
+  if (!request.isPreloaded && request.userId) {
+    recalculateReputation(request.userId).catch((err) =>
+      console.error('[DELETE request] Reputation update failed for user:', request.userId, err),
     );
   }
 
