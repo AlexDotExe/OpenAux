@@ -57,3 +57,11 @@ export async function updateUserDisplayName(userId: string, displayName: string)
     data: { displayName },
   });
 }
+
+/**
+ * Find or create a system user for a venue, used for playlist-preloaded song requests.
+ * The device fingerprint is scoped to the venue so system requests are distinguishable.
+ */
+export async function findOrCreateSystemUser(venueId: string): Promise<User> {
+  return findOrCreateUser(`system:${venueId}`);
+}

@@ -51,7 +51,7 @@ export async function advanceToNextSong(
     const { prisma } = await import('../db/prisma');
     const req = await prisma.songRequest.findUnique({
       where: { id: currentRequestId },
-      select: { userId: true, songId: true, voteWeight: true },
+      select: { userId: true, songId: true, voteWeight: true, isPreloaded: true },
     });
     if (req) {
       await recordPlayback({
@@ -59,8 +59,10 @@ export async function advanceToNextSong(
         songId: req.songId,
         crowdScore: req.voteWeight,
       });
-      // Fire and forget reputation update
-      recalculateReputation(req.userId).catch(console.error);
+      // Skip reputation update for playlist pre-loaded songs (no real user to credit)
+      if (req.userId && !req.isPreloaded) {
+        recalculateReputation(req.userId).catch(console.error);
+      }
     }
   }
 

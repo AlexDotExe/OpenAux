@@ -125,6 +125,12 @@ model Venue {
   latitude  Float?
   longitude Float?
 
+  // ── Playlist settings (#18) ──
+  // activePlaylistId: the playlist to auto-load into the queue when a session starts
+  activePlaylistId String?
+  // playlistPriority: when true, pre-loaded playlist songs are sorted before crowd requests
+  playlistPriority Boolean @default(false)
+
   // ── Relations ──
   sponsorSongs     SponsorSong[]
   playlists        VenuePlaylist[]
@@ -225,6 +231,8 @@ model SongRequest {
   isRefundEligible Boolean  @default(false) // True if user paid for boost
   isRefunded       Boolean  @default(false)
   refundedAt       DateTime?
+  // Playlist pre-load flag (#18) — true when added by venue playlist auto-load
+  isPreloaded      Boolean  @default(false)
 
   @@index([sessionId, status])
   @@index([songId])

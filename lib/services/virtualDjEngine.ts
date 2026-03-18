@@ -23,6 +23,16 @@ import { getCachedQueue, setCachedQueue } from './queueCache';
 /** Number of positions a boosted song advances in the queue */
 export const BOOST_POSITIONS = 3;
 
+/**
+ * When playlist priority is enabled, sort pre-loaded songs ahead of crowd requests.
+ * Within each group, the original score-based order is preserved.
+ */
+export function applyPlaylistPriority(ranked: ScoredRequest[]): ScoredRequest[] {
+  const preloaded = ranked.filter((r) => r.isPreloaded);
+  const crowd = ranked.filter((r) => !r.isPreloaded);
+  return [...preloaded, ...crowd];
+}
+
 export interface ScoredRequest {
   requestId: string;
   songId: string;
@@ -34,6 +44,7 @@ export interface ScoredRequest {
   isBoosted?: boolean;
   boostAmount?: number;
   userId?: string;
+  isPreloaded?: boolean;
 }
 
 export interface DjEngineConfig {
@@ -221,15 +232,19 @@ export async function selectNextSong(
     isBoosted: req.isBoosted,
     boostAmount: req.boostAmount,
     userId: req.userId,
+    isPreloaded: req.isPreloaded,
   }));
 
   // Sort descending by score
   scored.sort((a, b) => b.score - a.score);
 
   // Apply position-based boost: move boosted songs up BOOST_POSITIONS spots
-  const ranked = applyBoostPositions(scored);
+  const boosted = applyBoostPositions(scored);
 
-  return ranked[0];
+  // Apply playlist priority: pre-loaded songs sort above crowd requests when enabled
+  const ranked = venue?.playlistPriority ? applyPlaylistPriority(boosted) : boosted;
+
+  return ranked[0] ?? null;
 }
 
 /**
@@ -292,12 +307,16 @@ export async function getRankedQueue(sessionId: string, skipCache = false): Prom
     isBoosted: req.isBoosted,
     boostAmount: req.boostAmount,
     userId: req.userId,
+    isPreloaded: req.isPreloaded,
   }));
 
   scored.sort((a, b) => b.score - a.score);
 
   // Apply position-based boost: move boosted songs up BOOST_POSITIONS spots
-  const ranked = applyBoostPositions(scored);
+  const boosted = applyBoostPositions(scored);
+
+  // Apply playlist priority: pre-loaded songs sort above crowd requests when enabled
+  const ranked = venue?.playlistPriority ? applyPlaylistPriority(boosted) : boosted;
 
   // Cache the result
   setCachedQueue(sessionId, ranked);
