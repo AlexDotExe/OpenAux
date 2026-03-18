@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findVenueById } from '@/lib/db/venues';
 import { findRequestById, updateRequestStatus } from '@/lib/db/requests';
+import { processBoostRefund } from '@/lib/services/refundService';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
 import { prisma } from '@/lib/db/prisma';
 
@@ -42,6 +43,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     // Reject: change status to DELETED (excluded from all future queries)
     const updated = await updateRequestStatus(requestId, 'DELETED');
+
+    // Issue a refund if the suggestion was paid-boosted before rejection
+    if (request.isBoosted && request.isRefundEligible) {
+      processBoostRefund(requestId).catch((err) =>
+        console.error('[REJECT suggestion] Boost refund failed for rejected request:', requestId, err),
+      );
+    }
 
     // Log admin action
     await prisma.adminAction.create({

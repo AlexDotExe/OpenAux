@@ -11,6 +11,7 @@ import { recalculateReputation } from './userService';
 import { getStreamingServiceForVenue } from './streaming';
 import { invalidateQueueCache } from './queueCache';
 import { findSponsorSongByVenueAndSong, activateSponsorPromotion } from '../db/sponsorSongs';
+import { processBoostRefund } from './refundService';
 import { Session } from '@prisma/client';
 
 export async function startSession(venueId: string): Promise<Session> {
@@ -60,7 +61,15 @@ export async function advanceToNextSong(
     const { prisma } = await import('../db/prisma');
     const req = await prisma.songRequest.findUnique({
       where: { id: currentRequestId },
-      select: { userId: true, songId: true, voteWeight: true, isPreloaded: true, session: { select: { venueId: true } } },
+      select: {
+        userId: true,
+        songId: true,
+        voteWeight: true,
+        isPreloaded: true,
+        isBoosted: true,
+        isRefundEligible: true,
+        session: { select: { venueId: true } },
+      },
     });
     if (req) {
       await Promise.all([
@@ -77,6 +86,12 @@ export async function advanceToNextSong(
       // Skip reputation update for playlist pre-loaded songs (no real user to credit)
       if (req.userId && !req.isPreloaded) {
         recalculateReputation(req.userId).catch(console.error);
+      }
+      // Issue a refund if the song was skipped and the user paid for a boost
+      if (wasSkipped && req.isBoosted && req.isRefundEligible) {
+        processBoostRefund(currentRequestId).catch((err) =>
+          console.error('[advanceToNextSong] Boost refund failed for skipped request:', currentRequestId, err),
+        );
       }
     }
   }

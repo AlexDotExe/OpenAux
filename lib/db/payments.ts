@@ -46,3 +46,10 @@ export async function findPaymentsByVenue(venueId: string): Promise<Payment[]> {
     orderBy: { createdAt: 'desc' },
   });
 }
+
+export async function findCompletedPaymentByRequestId(requestId: string): Promise<Payment | null> {
+  return prisma.payment.findFirst({
+    where: { requestId, type: 'BOOST', status: { in: ['COMPLETED', 'REFUNDED'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+}
