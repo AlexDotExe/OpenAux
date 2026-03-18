@@ -1,103 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById, getSponsorSongsForVenue, upsertSponsorSong, deleteSponsorSong } from '@/lib/db/venues';
+import { findVenueById } from '@/lib/db/venues';
+import { getSponsorSongs, createSponsorSong } from '@/lib/db/sponsorSongs';
 import { prisma } from '@/lib/db/prisma';
 
-/**
- * Admin-only: Manage sponsor/anthem songs for a venue.
- * Protected by simple password check (POC only).
- *
- * Scaling Path: Replace with proper JWT/session-based admin auth.
- */
-async function verifyAdmin(adminPassword: string, venueId: string): Promise<boolean> {
+async function verifyAdmin(venueId: string, adminPassword: string): Promise<boolean> {
   const venue = await findVenueById(venueId);
   if (!venue) return false;
   return adminPassword === (venue as { adminPassword?: string }).adminPassword;
 }
 
-/** GET /api/admin/[venueId]/sponsor-songs?adminPassword=xxx — list sponsor songs */
+/**
+ * GET /api/admin/[venueId]/sponsor-songs
+ * List all sponsor songs for the venue.
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ venueId: string }> },
 ) {
   try {
     const { venueId } = await params;
-    const adminPassword = req.nextUrl.searchParams.get('adminPassword') ?? '';
+    const adminPassword = req.headers.get('x-admin-password') ?? req.nextUrl.searchParams.get('adminPassword') ?? '';
 
-    const isAdmin = await verifyAdmin(adminPassword, venueId);
-    if (!isAdmin) {
+    if (!await verifyAdmin(venueId, adminPassword)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const sponsorSongs = await getSponsorSongsForVenue(venueId);
+    const sponsorSongs = await getSponsorSongs(venueId);
     return NextResponse.json({ sponsorSongs });
   } catch (error) {
-    console.error('[GET /api/admin/[venueId]/sponsor-songs]', error);
+    console.error('[GET /api/admin/:venueId/sponsor-songs]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-/** POST /api/admin/[venueId]/sponsor-songs — add or update a sponsor/anthem song */
+/**
+ * POST /api/admin/[venueId]/sponsor-songs
+ * Create a new sponsor song for the venue.
+ * Body: { adminPassword, songId, promotionText?, promotionDurationMinutes?, isAnthem? }
+ * If the song doesn't exist in the DB yet, provide title + artist to upsert it.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ venueId: string }> },
 ) {
   try {
     const { venueId } = await params;
-    const body = await req.json().catch(() => ({}));
-    const { adminPassword, songId, promotionText, promotionDurationMinutes, isAnthem } = body;
+    const body = await req.json();
+    const {
+      adminPassword,
+      songId,
+      title,
+      artist,
+      albumArtUrl,
+      spotifyId,
+      youtubeId,
+      promotionText,
+      promotionDurationMinutes,
+      isAnthem,
+    } = body;
 
-    const isAdmin = await verifyAdmin(adminPassword ?? '', venueId);
-    if (!isAdmin) {
+    if (!await verifyAdmin(venueId, adminPassword)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!songId || typeof songId !== 'string') {
-      return NextResponse.json({ error: 'songId is required' }, { status: 400 });
+    if (!title || !artist) {
+      return NextResponse.json({ error: 'title and artist are required' }, { status: 400 });
     }
 
-    // Verify the song exists
-    const song = await prisma.song.findUnique({ where: { id: songId } });
-    if (!song) {
-      return NextResponse.json({ error: 'Song not found' }, { status: 404 });
+    // Upsert the song record so we have a stable DB ID
+    let song;
+    if (spotifyId) {
+      song = await prisma.song.upsert({
+        where: { spotifyId },
+        update: { title, artist, albumArtUrl: albumArtUrl ?? null },
+        create: { title, artist, albumArtUrl: albumArtUrl ?? null, spotifyId },
+      });
+    } else if (youtubeId) {
+      song = await prisma.song.upsert({
+        where: { youtubeId },
+        update: { title, artist, albumArtUrl: albumArtUrl ?? null },
+        create: { title, artist, albumArtUrl: albumArtUrl ?? null, youtubeId },
+      });
+    } else if (songId) {
+      // Song already exists in DB by its internal ID
+      song = await prisma.song.findUnique({ where: { id: songId } });
+      if (!song) {
+        return NextResponse.json({ error: 'Song not found' }, { status: 404 });
+      }
+    } else {
+      return NextResponse.json({ error: 'songId, spotifyId, or youtubeId is required' }, { status: 400 });
     }
 
-    const sponsorSong = await upsertSponsorSong(venueId, songId, {
+    const sponsorSong = await createSponsorSong({
+      venueId,
+      songId: song.id,
       promotionText: promotionText ?? null,
       promotionDurationMinutes: promotionDurationMinutes ?? 5,
       isAnthem: isAnthem ?? false,
-      isActive: true,
     });
 
     return NextResponse.json({ sponsorSong }, { status: 201 });
-  } catch (error) {
-    console.error('[POST /api/admin/[venueId]/sponsor-songs]', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
-
-/** DELETE /api/admin/[venueId]/sponsor-songs — remove a sponsor/anthem song */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ venueId: string }> },
-) {
-  try {
-    const { venueId } = await params;
-    const body = await req.json().catch(() => ({}));
-    const { adminPassword, songId } = body;
-
-    const isAdmin = await verifyAdmin(adminPassword ?? '', venueId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (error: unknown) {
+    if ((error as { code?: string }).code === 'P2002') {
+      return NextResponse.json({ error: 'This song is already a sponsor song for this venue' }, { status: 409 });
     }
-
-    if (!songId || typeof songId !== 'string') {
-      return NextResponse.json({ error: 'songId is required' }, { status: 400 });
-    }
-
-    await deleteSponsorSong(venueId, songId);
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('[DELETE /api/admin/[venueId]/sponsor-songs]', error);
+    console.error('[POST /api/admin/:venueId/sponsor-songs]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

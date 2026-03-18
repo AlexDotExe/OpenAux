@@ -4,6 +4,7 @@ import { getRankedQueue } from '@/lib/services/virtualDjEngine';
 import { findVenueById, getSponsorSongsForVenue } from '@/lib/db/venues';
 import { getUserSession } from '@/lib/db/userSessions';
 import { findPendingSuggestions } from '@/lib/db/requests';
+import { getActivePromotion } from '@/lib/db/sponsorSongs';
 
 export async function GET(
   req: NextRequest,
@@ -18,10 +19,11 @@ export async function GET(
 
     // getRankedQueue internally fetches venue, so we can fetch both in parallel
     // but we still need venue name for response
-    const [queue, venue, userSession, sponsorSongs] = await Promise.all([
+    const [queue, venue, userSession, activePromotion, sponsorSongs] = await Promise.all([
       getRankedQueue(sessionId),
       findVenueById(session.venueId),
       userId ? getUserSession(userId, sessionId) : Promise.resolve(null),
+      getActivePromotion(session.venueId),
       getSponsorSongsForVenue(session.venueId),
     ]);
 
@@ -76,6 +78,17 @@ export async function GET(
         createdAt: s.createdAt,
       })),
       anthemAnnouncement,
+      activePromotion: activePromotion
+        ? {
+            id: activePromotion.id,
+            promotionText: activePromotion.promotionText,
+            promotionDurationMinutes: activePromotion.promotionDurationMinutes,
+            promotionActivatedAt: activePromotion.promotionActivatedAt,
+            promotionExpiresAt: activePromotion.promotionExpiresAt,
+            isAnthem: activePromotion.isAnthem,
+            song: activePromotion.song,
+          }
+        : null,
     });
   } catch (error) {
     console.error('[GET /api/sessions/:sessionId]', error);
