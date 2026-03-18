@@ -90,6 +90,19 @@ export async function POST(
     // Mark as PLAYED immediately after playback starts
     await updateRequestStatus(requestId, 'PLAYED');
 
+    // Log admin override action when crowd control mode is active
+    if (venue.crowdControlEnabled) {
+      await prisma.adminAction.create({
+        data: {
+          venueId,
+          sessionId: session.id,
+          actionType: 'OVERRIDE_QUEUE',
+          targetRequestId: requestId,
+          metadata: { action: 'play_now', title: song.title, artist: song.artist },
+        },
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       nowPlaying: {

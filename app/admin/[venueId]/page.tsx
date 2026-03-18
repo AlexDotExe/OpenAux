@@ -59,6 +59,7 @@ export default function AdminPage() {
   const [monetizationEnabled, setMonetizationEnabled] = useState(false);
   const [smartMonetizationEnabled, setSmartMonetizationEnabled] = useState(false);
   const [suggestionModeEnabled, setSuggestionModeEnabled] = useState(false);
+  const [crowdControlEnabled, setCrowdControlEnabled] = useState(true);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<string | null>(null);
   const [simulatedUsers, setSimulatedUsers] = useState(0);
   // Pending suggestions state
@@ -124,6 +125,7 @@ export default function AdminPage() {
         setMonetizationEnabled(settings.monetizationEnabled ?? false);
         setSmartMonetizationEnabled(settings.smartMonetizationEnabled ?? false);
         setSuggestionModeEnabled(settings.suggestionModeEnabled ?? false);
+        setCrowdControlEnabled(settings.crowdControlEnabled ?? true);
       }
     } catch (err) {
       console.error('Failed to load venue settings:', err);
@@ -231,7 +233,21 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const handleSkip = (requestId: string) => handleAdvance(requestId, true);
+  const handleSkip = async (requestId: string) => {
+    if (!venueData?.activeSession) return;
+    setLoading(true);
+    const res = await fetch(`/api/admin/${params.venueId}/requests/${requestId}/skip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword: password }),
+    });
+    const data = await res.json();
+    if (data.service === 'youtube' && data.trackId) {
+      setCurrentYoutubeId(data.trackId);
+    }
+    await load();
+    setLoading(false);
+  };
 
   const handleTrackEnded = async () => {
     // Auto-advance when track finishes
@@ -355,6 +371,7 @@ export default function AdminPage() {
           monetizationEnabled,
           smartMonetizationEnabled,
           suggestionModeEnabled,
+          crowdControlEnabled,
         }),
       });
       const data = await res.json();
@@ -443,6 +460,8 @@ export default function AdminPage() {
           setSmartMonetizationEnabled={setSmartMonetizationEnabled}
           suggestionModeEnabled={suggestionModeEnabled}
           setSuggestionModeEnabled={setSuggestionModeEnabled}
+          crowdControlEnabled={crowdControlEnabled}
+          setCrowdControlEnabled={setCrowdControlEnabled}
           onSaveSettings={handleSaveSettings}
           settingsSaveStatus={settingsSaveStatus}
           // Active Users
