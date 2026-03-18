@@ -78,6 +78,14 @@ export default function AdminPage() {
     createdAt: string;
     completedAt: string | null;
   }>>([]);
+  const [creditTransactions, setCreditTransactions] = useState<Array<{
+    id: string;
+    amount: number;
+    type: string;
+    description: string | null;
+    createdAt: string;
+    user: { displayName: string | null; email: string | null };
+  }>>([]);
 
   const updateSimulatedUsers = async (count: number) => {
     if (!venueData?.activeSession) return;
@@ -163,6 +171,21 @@ export default function AdminPage() {
     }
   }, [params.venueId]);
 
+  const loadCreditTransactions = useCallback(async () => {
+    if (!params.venueId || !password) return;
+    try {
+      const res = await fetch(
+        `/api/admin/${params.venueId}/credit-transactions?adminPassword=${encodeURIComponent(password)}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCreditTransactions(data.transactions ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to load credit transactions:', err);
+    }
+  }, [params.venueId, password]);
+
   const load = useCallback(async () => {
     if (!params.venueId) return;
     const res = await fetch(`/api/venues/${params.venueId}`);
@@ -190,8 +213,9 @@ export default function AdminPage() {
       load();
       loadSettings(); // Load settings only once on initial auth
       loadPayments();
+      loadCreditTransactions();
     }
-  }, [authed, load, loadSettings, loadPayments]);
+  }, [authed, load, loadSettings, loadPayments, loadCreditTransactions]);
 
   useEffect(() => {
     if (!authed) return;
@@ -573,6 +597,60 @@ export default function AdminPage() {
                       'text-yellow-400'
                     }`}>
                       ${payment.amount.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Credit Transaction History */}
+        {creditTransactions.length > 0 && (
+          <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+            <h2 className="font-semibold text-lg">🪙 Credit Transactions</h2>
+            {/* Summary */}
+            {(() => {
+              const purchases = creditTransactions.filter(t => t.type === 'PURCHASE');
+              const debits = creditTransactions.filter(t => t.type === 'BOOST_DEBIT');
+              const totalPurchased = purchases.reduce((sum, t) => sum + t.amount, 0);
+              const totalSpent = debits.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+              return (
+                <div className="grid grid-cols-2 gap-2 bg-gray-800 rounded-lg p-3 text-center">
+                  <div>
+                    <p className="text-xs text-gray-400">Credits Purchased</p>
+                    <p className="font-semibold text-green-400">{totalPurchased.toFixed(0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Credits Spent</p>
+                    <p className="font-semibold text-yellow-400">{totalSpent.toFixed(0)}</p>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Individual credit transactions */}
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {creditTransactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between text-sm bg-gray-800 rounded-lg px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-gray-300 truncate">
+                      {tx.user.displayName
+                        ? `DJ ${tx.user.displayName}`
+                        : tx.user.email ?? 'Unknown user'}
+                    </p>
+                    {tx.description && (
+                      <p className="text-xs text-gray-500 truncate">{tx.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 ml-2 shrink-0">
+                    <span className="text-gray-400 text-xs">
+                      {new Date(tx.createdAt).toLocaleDateString()}
+                    </span>
+                    <span className={`font-semibold ${tx.amount > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {tx.amount > 0 ? '+' : ''}{tx.amount.toFixed(0)}
                     </span>
                   </div>
                 </div>

@@ -185,7 +185,7 @@ function StripeBoostForm({
 }
 
 export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, monetizationEnabled = false, nowPlayingRemainingMs = 0, onBoostSuccess }: Props) {
-  const { queue: storeQueue } = useSessionStore();
+  const { queue: storeQueue, creditBalance, authToken, setCreditBalance } = useSessionStore();
   const displayQueue = queue.length > 0 ? queue : storeQueue;
   const [boostingRequestId, setBoostingRequestId] = useState<string | null>(null);
   const [showBoostModal, setShowBoostModal] = useState(false);
@@ -193,6 +193,8 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
   const [boostStatus, setBoostStatus] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);
+  // Track which payment method is selected in the modal: 'stripe' | 'credits'
+  const [boostPaymentMethod, setBoostPaymentMethod] = useState<'stripe' | 'credits'>('stripe');
 
   // Track queue position changes to show movement indicators
   const prevPositionsRef = useRef<Map<string, number>>(new Map());
@@ -224,33 +226,38 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
     setSelectedRequestId(requestId);
     setBoostStatus(null);
     setClientSecret(null);
+    // Default to credits if user has enough, otherwise stripe
+    setBoostPaymentMethod(creditBalance >= boostPrice ? 'credits' : 'stripe');
 
     if (boostPrice > 0 && stripePromise) {
-      // Paid boost: create a payment intent first
-      setLoadingIntent(true);
+      // Paid boost: open modal; load stripe intent in background for stripe path
       setShowBoostModal(true);
-
-      try {
-        const res = await fetch('/api/payments/create-intent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requestId, userId: currentUserId }),
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-          setClientSecret(data.clientSecret);
-        } else {
-          setBoostStatus(`Error: ${data.error}`);
-        }
-      } catch {
-        setBoostStatus('Failed to initialize payment. Please try again.');
-      } finally {
-        setLoadingIntent(false);
-      }
     } else {
       // Free boost: show simple confirmation
       setShowBoostModal(true);
+    }
+  };
+
+  const loadStripeIntent = async (requestId: string) => {
+    setLoadingIntent(true);
+    setBoostStatus(null);
+    try {
+      const res = await fetch('/api/payments/create-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId, userId: currentUserId }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setClientSecret(data.clientSecret);
+      } else {
+        setBoostStatus(`Error: ${data.error}`);
+      }
+    } catch {
+      setBoostStatus('Failed to initialize payment. Please try again.');
+    } finally {
+      setLoadingIntent(false);
     }
   };
 
@@ -285,11 +292,49 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
     }
   };
 
+  const confirmCreditBoost = async () => {
+    if (!selectedRequestId || !currentUserId || !authToken) return;
+
+    setBoostingRequestId(selectedRequestId);
+    setBoostStatus(null);
+
+    try {
+      const res = await fetch(`/api/requests/${selectedRequestId}/boost`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUserId, useCredits: true, authToken }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // Refresh credit balance after deduction
+        const balanceRes = await fetch(`/api/credits/balance?authToken=${encodeURIComponent(authToken)}`);
+        if (balanceRes.ok) {
+          const balanceData = await balanceRes.json();
+          setCreditBalance(balanceData.creditBalance);
+        }
+        setBoostStatus('Success! Your song has been boosted +3 spots up the queue!');
+        setTimeout(() => {
+          closeModal();
+          if (onBoostSuccess) onBoostSuccess();
+        }, 2000);
+      } else {
+        setBoostStatus(`Error: ${data.error}`);
+      }
+    } catch {
+      setBoostStatus('Failed to boost song. Please try again.');
+    } finally {
+      setBoostingRequestId(null);
+    }
+  };
+
   const closeModal = () => {
     setShowBoostModal(false);
     setClientSecret(null);
     setBoostStatus(null);
     setBoostingRequestId(null);
+    setBoostPaymentMethod('stripe');
   };
 
   if (displayQueue.length === 0) {
@@ -471,25 +516,34 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
         const savingsMs = selectedIdx > 0
           ? calculateWaitTimeMs(displayQueue, selectedIdx, nowPlayingRemainingMs) - calculateWaitTimeMs(displayQueue, boostedIdx, nowPlayingRemainingMs)
           : 0;
+        const hasEnoughCredits = creditBalance >= boostPrice;
         return (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
             <div className="bg-gray-900 rounded-xl p-6 max-w-sm w-full space-y-4">
               <h3 className="text-xl font-bold">⚡ Priority Boost</h3>
 
-              {/* Paid boost: Stripe payment form */}
-              {boostPrice > 0 && stripePromise ? (
-                loadingIntent ? (
-                  <p className="text-gray-400 animate-pulse text-center py-4">Loading payment form...</p>
-                ) : clientSecret ? (
-                  <Elements
-                    stripe={stripePromise}
-                    options={{
-                      clientSecret,
-                      appearance: { theme: 'night', labels: 'floating' },
-                    }}
-                  >
+              {/* Paid boost */}
+              {boostPrice > 0 ? (
+                boostStatus ? (
+                  <div className="text-center space-y-4">
+                    <p className={boostStatus.startsWith('Error') ? 'text-red-400' : 'text-green-400'}>
+                      {boostStatus}
+                    </p>
+                    {boostStatus.startsWith('Error') && (
+                      <button
+                        onClick={() => setBoostStatus(null)}
+                        className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+                      >
+                        Try Again
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <>
                     <p className="text-gray-400 text-sm">
-                      Move this song to <span className="text-yellow-400 font-semibold">#{boostedIdx + 1}</span> in the queue for{' '}
+                      Move this song to{' '}
+                      <span className="text-yellow-400 font-semibold">#{boostedIdx + 1}</span> in the
+                      queue for{' '}
                       <span className="text-yellow-400 font-semibold">{formatPrice(boostPrice)}</span>.
                     </p>
                     {savingsMs > 0 && (
@@ -497,32 +551,142 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                         ⏱ Boost to save {formatWaitTime(savingsMs)}
                       </p>
                     )}
-                    <div className="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-200">
-                      ℹ️ {REFUND_POLICY_MESSAGE}
-                    </div>
-                    <StripeBoostForm
-                      requestId={selectedRequestId!}
-                      userId={currentUserId!}
-                      boostPrice={boostPrice}
-                      onSuccess={() => {
-                        closeModal();
-                        if (onBoostSuccess) onBoostSuccess();
-                      }}
-                      onCancel={closeModal}
-                    />
-                  </Elements>
-                ) : (
-                  <div className="space-y-4">
-                    {boostStatus && (
-                      <p className="text-red-400 text-sm">{boostStatus}</p>
+
+                    {/* Payment method selector */}
+                    {authToken && (
+                      <div className="flex rounded-lg bg-gray-800 p-1 gap-1">
+                        <button
+                          onClick={() => {
+                            setBoostPaymentMethod('credits');
+                            setClientSecret(null);
+                          }}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                            boostPaymentMethod === 'credits'
+                              ? 'bg-green-700 text-white'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          💳 Credits ({creditBalance.toFixed(1)})
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBoostPaymentMethod('stripe');
+                            if (!clientSecret && selectedRequestId) {
+                              loadStripeIntent(selectedRequestId);
+                            }
+                          }}
+                          className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                            boostPaymentMethod === 'stripe'
+                              ? 'bg-yellow-700 text-white'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          💳 Card
+                        </button>
+                      </div>
                     )}
-                    <button
-                      onClick={closeModal}
-                      className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
-                    >
-                      Close
-                    </button>
-                  </div>
+
+                    {/* Credits payment path */}
+                    {boostPaymentMethod === 'credits' && authToken ? (
+                      hasEnoughCredits ? (
+                        <>
+                          <div className="bg-green-900/30 border border-green-700 rounded-lg px-3 py-2 text-xs text-green-200">
+                            ✅ {boostPrice} credits will be deducted from your balance ({creditBalance.toFixed(2)} available).
+                          </div>
+                          <div className="flex gap-3">
+                            <button
+                              onClick={closeModal}
+                              disabled={!!boostingRequestId}
+                              className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={confirmCreditBoost}
+                              disabled={!!boostingRequestId}
+                              className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white py-2 rounded-lg font-semibold"
+                            >
+                              {boostingRequestId ? 'Boosting…' : `Use ${boostPrice} Credits`}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-yellow-400 text-sm">
+                            You need {boostPrice} credits to boost, but only have{' '}
+                            {creditBalance.toFixed(2)}. Purchase more credits from the account menu.
+                          </p>
+                          <button
+                            onClick={closeModal}
+                            className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+                          >
+                            Close
+                          </button>
+                        </>
+                      )
+                    ) : (
+                      /* Stripe payment path */
+                      stripePromise ? (
+                        loadingIntent ? (
+                          <p className="text-gray-400 animate-pulse text-center py-4">
+                            Loading payment form...
+                          </p>
+                        ) : clientSecret ? (
+                          <Elements
+                            stripe={stripePromise}
+                            options={{
+                              clientSecret,
+                              appearance: { theme: 'night', labels: 'floating' },
+                            }}
+                          >
+                            <div className="bg-blue-900/30 border border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-200">
+                              ℹ️ {REFUND_POLICY_MESSAGE}
+                            </div>
+                            <StripeBoostForm
+                              requestId={selectedRequestId!}
+                              userId={currentUserId!}
+                              boostPrice={boostPrice}
+                              onSuccess={() => {
+                                closeModal();
+                                if (onBoostSuccess) onBoostSuccess();
+                              }}
+                              onCancel={closeModal}
+                            />
+                          </Elements>
+                        ) : (
+                          <>
+                            {boostStatus && (
+                              <p className="text-red-400 text-sm">{boostStatus}</p>
+                            )}
+                            <button
+                              onClick={() => selectedRequestId && loadStripeIntent(selectedRequestId)}
+                              className="w-full bg-yellow-600 hover:bg-yellow-700 text-black py-2 rounded-lg font-semibold"
+                            >
+                              Load Payment Form
+                            </button>
+                            <button
+                              onClick={closeModal}
+                              className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        )
+                      ) : (
+                        <div className="space-y-4">
+                          {boostStatus && (
+                            <p className="text-red-400 text-sm">{boostStatus}</p>
+                          )}
+                          <button
+                            onClick={closeModal}
+                            className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-semibold"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      )
+                    )}
+                  </>
                 )
               ) : (
                 // Free boost: simple confirmation
