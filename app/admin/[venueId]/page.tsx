@@ -232,10 +232,10 @@ export default function AdminPage() {
   }, [params.venueId]);
 
   const loadCreditTransactions = useCallback(async () => {
-    if (!params.venueId || !password) return;
+    if (!params.venueId || !adminToken) return;
     try {
       const res = await fetch(
-        `/api/admin/${params.venueId}/credit-transactions?adminPassword=${encodeURIComponent(password)}`,
+        `/api/admin/${params.venueId}/credit-transactions?adminPassword=${encodeURIComponent(adminToken)}`,
       );
       if (res.ok) {
         const data = await res.json();
@@ -244,7 +244,7 @@ export default function AdminPage() {
     } catch (err) {
       console.error('Failed to load credit transactions:', err);
     }
-  }, [params.venueId, password]);
+  }, [params.venueId, adminToken]);
 
   const load = useCallback(async () => {
     if (!params.venueId) return;
