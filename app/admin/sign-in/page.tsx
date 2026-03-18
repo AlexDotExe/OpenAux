@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
 const errorMessages: Record<string, string> = {
   invalid_state: 'Your sign-in session expired. Please try again.',
@@ -17,7 +18,7 @@ const errorMessages: Record<string, string> = {
   internal_error: 'Something went wrong while signing you in.',
 };
 
-export default function AdminSignInPage() {
+function SignInContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
 
@@ -65,5 +66,17 @@ export default function AdminSignInPage() {
          </p>
       </div>
     </main>
+  );
+}
+
+export default function AdminSignInPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
+        <p className="text-gray-400 animate-pulse">Loading...</p>
+      </main>
+    }>
+      <SignInContent />
+    </Suspense>
   );
 }
