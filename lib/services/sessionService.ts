@@ -11,7 +11,7 @@ import { recalculateReputation } from './userService';
 import { getStreamingServiceForVenue } from './streaming';
 import { invalidateQueueCache } from './queueCache';
 import { findSponsorSongByVenueAndSong, activateSponsorPromotion } from '../db/sponsorSongs';
-import { processBoostRefund } from './refundService';
+import { processBoostRefund, refundUnplayedBoosts } from './refundService';
 import { Session } from '@prisma/client';
 
 export async function startSession(venueId: string): Promise<Session> {
@@ -19,6 +19,11 @@ export async function startSession(venueId: string): Promise<Session> {
 }
 
 export async function stopSession(sessionId: string): Promise<Session> {
+  // Automatically refund any unplayed boosted songs before ending the session.
+  // Errors are logged but do not block the session from ending.
+  refundUnplayedBoosts(sessionId).catch((err) =>
+    console.error('[stopSession] Unplayed boost refund sweep failed for session', sessionId, err),
+  );
   return endSession(sessionId);
 }
 

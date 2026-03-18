@@ -11,6 +11,7 @@ import { SessionExpiryWarning } from '@/components/SessionExpiryWarning';
 import { SponsorSongBanner } from '@/components/SponsorSongBanner';
 import { AuthModal } from '@/components/AuthModal';
 import { UserProfileMenu } from '@/components/UserProfileMenu';
+import { RefundPolicyNotice } from '@/components/RefundPolicyNotice';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/lib/constants';
 
 interface PendingSuggestion {
@@ -502,6 +503,15 @@ export default function SessionPage() {
             </p>
           </div>
         ))}
+
+        {/* Refund Policy Notice — shown when the user has boosted songs in the queue */}
+        <RefundPolicyNotice
+          boostedSongCount={
+            (sessionData.queue ?? []).filter(
+              (item) => item.isBoosted && item.userId === userId,
+            ).length
+          }
+        />
 
         {/* Now Playing */}
         <NowPlayingUser sessionId={session.id} onPlaybackUpdate={setNowPlayingRemainingMs} />

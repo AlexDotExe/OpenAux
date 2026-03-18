@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { findVenueById } from '@/lib/db/venues';
 import { findRequestById, updateRequestStatus } from '@/lib/db/requests';
 import { processBoostRefund } from '@/lib/services/refundService';
+import { recalculateReputation } from '@/lib/services/userService';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
 import { prisma } from '@/lib/db/prisma';
 
@@ -44,10 +45,19 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // Reject: change status to DELETED (excluded from all future queries)
     const updated = await updateRequestStatus(requestId, 'DELETED');
 
-    // Issue a refund if the suggestion was paid-boosted before rejection
+    // Issue a refund if the suggestion was paid-boosted before rejection.
+    // applyScorePenalty=true: the reputation hit is applied as part of the refund since
+    // recalculateReputation is not called for rejected (never-played) requests.
     if (request.isBoosted && request.isRefundEligible) {
-      processBoostRefund(requestId).catch((err) =>
+      processBoostRefund(requestId, true).catch((err) =>
         console.error('[REJECT suggestion] Boost refund failed for rejected request:', requestId, err),
+      );
+    }
+
+    // Update the requester's reputation to reflect this interaction even without playback.
+    if (!request.isPreloaded && request.userId) {
+      recalculateReputation(request.userId).catch((err) =>
+        console.error('[REJECT suggestion] Reputation update failed for user:', request.userId, err),
       );
     }
 
