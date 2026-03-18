@@ -26,6 +26,7 @@ export async function GET(
     ]);
 
     const suggestionModeEnabled = venue?.suggestionModeEnabled ?? false;
+    const crowdControlEnabled = venue?.crowdControlEnabled ?? true;
 
     // When suggestion mode is enabled, include pending suggestions so users can track their own
     const pendingSuggestions = suggestionModeEnabled
@@ -66,6 +67,7 @@ export async function GET(
         ? { expiresAt: userSession.expiresAt.toISOString(), isExpired: userSession.isExpired }
         : null,
       suggestionModeEnabled,
+      crowdControlEnabled,
       pendingSuggestions: pendingSuggestions.map(s => ({
         requestId: s.id,
         title: s.song.title,

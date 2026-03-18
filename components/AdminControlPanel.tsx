@@ -61,6 +61,8 @@ interface Props {
   setSmartMonetizationEnabled: (val: boolean) => void;
   suggestionModeEnabled: boolean;
   setSuggestionModeEnabled: (val: boolean) => void;
+  crowdControlEnabled: boolean;
+  setCrowdControlEnabled: (val: boolean) => void;
   onSaveSettings: () => void;
   settingsSaveStatus: string | null;
   // Active Users
@@ -112,6 +114,8 @@ export function AdminControlPanel({
   setSmartMonetizationEnabled,
   suggestionModeEnabled,
   setSuggestionModeEnabled,
+  crowdControlEnabled,
+  setCrowdControlEnabled,
   onSaveSettings,
   settingsSaveStatus,
   userCount,
@@ -430,6 +434,28 @@ export function AdminControlPanel({
             </p>
           </div>
 
+          {/* Crowd Control Toggle */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium">Crowd Control Mode</label>
+              <button
+                onClick={() => setCrowdControlEnabled(!crowdControlEnabled)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  crowdControlEnabled ? 'bg-blue-600' : 'bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                    crowdControlEnabled ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              Queue order driven entirely by crowd votes — your actions are logged as overrides
+            </p>
+          </div>
+
           {/* Manual Controls - Only show when Smart Monetization is OFF */}
           {!smartMonetizationEnabled && (
             <>
@@ -717,7 +743,19 @@ export function AdminControlPanel({
       {/* Queue Section */}
       {queue.length > 0 && (
         <div className="space-y-3 border-t border-gray-800 pt-4">
-          <h3 className="text-sm font-medium text-gray-400">Queue ({queue.length})</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-400">Queue ({queue.length})</h3>
+            {crowdControlEnabled && (
+              <span className="text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded-full">
+                🗳 Crowd Controlled
+              </span>
+            )}
+          </div>
+          {crowdControlEnabled && (
+            <p className="text-xs text-blue-400">
+              Queue order is crowd-driven. Actions below are override operations and will be logged.
+            </p>
+          )}
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {queue.map((item, idx) => (
               <div key={item.requestId} className="flex items-center gap-2 text-xs">
@@ -731,7 +769,7 @@ export function AdminControlPanel({
                   onClick={() => onPlayNow(item.requestId)}
                   disabled={loading}
                   className="bg-green-700 hover:bg-green-600 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                  title="Play now"
+                  title={crowdControlEnabled ? 'Override: Play now (logged)' : 'Play now'}
                 >
                   ▶
                 </button>
@@ -739,7 +777,7 @@ export function AdminControlPanel({
                   onClick={() => onDelete(item.requestId)}
                   disabled={loading}
                   className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                  title="Delete"
+                  title={crowdControlEnabled ? 'Override: Delete (logged)' : 'Delete'}
                 >
                   🗑
                 </button>
@@ -747,7 +785,7 @@ export function AdminControlPanel({
                   onClick={() => onSkip(item.requestId)}
                   disabled={loading}
                   className="bg-gray-800 hover:bg-red-900 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                  title="Skip"
+                  title={crowdControlEnabled ? 'Override: Skip (logged)' : 'Skip'}
                 >
                   ⏭
                 </button>
