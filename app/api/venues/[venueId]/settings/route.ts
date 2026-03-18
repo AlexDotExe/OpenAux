@@ -28,6 +28,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
       smartMonetizationEnabled: venue.smartMonetizationEnabled,
       suggestionModeEnabled: venue.suggestionModeEnabled,
       crowdControlEnabled: venue.crowdControlEnabled,
+      activePlaylistId: venue.activePlaylistId ?? null,
+      playlistPriority: venue.playlistPriority,
     });
   } catch (err) {
     console.error('[GET /api/venues/[venueId]/settings]', err);
@@ -59,6 +61,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       smartMonetizationEnabled?: boolean;
       suggestionModeEnabled?: boolean;
       crowdControlEnabled?: boolean;
+      activePlaylistId?: string | null;
+      playlistPriority?: boolean;
     } = {};
 
     if (body.defaultBoostPrice !== undefined) settings.defaultBoostPrice = body.defaultBoostPrice;
@@ -68,6 +72,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (body.smartMonetizationEnabled !== undefined) settings.smartMonetizationEnabled = body.smartMonetizationEnabled;
     if (body.suggestionModeEnabled !== undefined) settings.suggestionModeEnabled = body.suggestionModeEnabled;
     if (body.crowdControlEnabled !== undefined) settings.crowdControlEnabled = body.crowdControlEnabled;
+    if (body.activePlaylistId !== undefined) settings.activePlaylistId = body.activePlaylistId ?? null;
+    if (body.playlistPriority !== undefined) settings.playlistPriority = body.playlistPriority;
 
     const updated = await updateVenueSettings(venueId, settings);
 
@@ -79,6 +85,8 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       smartMonetizationEnabled: updated.smartMonetizationEnabled,
       suggestionModeEnabled: updated.suggestionModeEnabled,
       crowdControlEnabled: updated.crowdControlEnabled,
+      activePlaylistId: updated.activePlaylistId ?? null,
+      playlistPriority: updated.playlistPriority,
     });
   } catch (err) {
     console.error('[PUT /api/venues/[venueId]/settings]', err);

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { NowPlaying } from './NowPlaying';
+import { PlaylistManager } from './PlaylistManager';
 import { SponsorSongsManager } from './SponsorSongsManager';
 import type { PendingSuggestion } from '@/app/admin/[venueId]/page';
 
@@ -34,6 +35,7 @@ interface QueueItem {
   spotifyId?: string;
   youtubeId?: string;
   userId?: string;
+  isPreloaded?: boolean;
 }
 
 interface Props {
@@ -66,6 +68,10 @@ interface Props {
   setCrowdControlEnabled: (val: boolean) => void;
   onSaveSettings: () => void;
   settingsSaveStatus: string | null;
+  // Playlist settings
+  activePlaylistId: string | null;
+  playlistPriority: boolean;
+  onPlaylistSettingsChange: (activePlaylistId: string | null, playlistPriority: boolean) => void;
   // Active Users
   userCount: number;
   simulatedUsers: number;
@@ -119,6 +125,9 @@ export function AdminControlPanel({
   setCrowdControlEnabled,
   onSaveSettings,
   settingsSaveStatus,
+  activePlaylistId,
+  playlistPriority,
+  onPlaylistSettingsChange,
   userCount,
   simulatedUsers,
   onSimulatedUsersChange,
@@ -726,6 +735,18 @@ export function AdminControlPanel({
         </div>
       )}
 
+      {/* Playlists Section */}
+      <div className="space-y-3 border-t border-gray-800 pt-4">
+        <h3 className="text-sm font-medium text-gray-400">Playlists</h3>
+        <PlaylistManager
+          venueId={venueId}
+          password={password}
+          activePlaylistId={activePlaylistId}
+          playlistPriority={playlistPriority}
+          onSettingsChange={onPlaylistSettingsChange}
+        />
+      </div>
+
       {/* Sponsor Songs Section */}
       {activeSession && (
         <div className="space-y-3 border-t border-gray-800 pt-4">
@@ -771,6 +792,9 @@ export function AdminControlPanel({
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{item.title}</p>
                   <p className="text-gray-400 truncate">{item.artist}</p>
+                  {item.isPreloaded && (
+                    <span className="text-xs text-purple-400">♫ Playlist</span>
+                  )}
                 </div>
                 <span className="text-gray-500">{item.score.toFixed(1)}</span>
                 <button

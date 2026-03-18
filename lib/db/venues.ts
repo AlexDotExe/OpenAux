@@ -113,6 +113,8 @@ export async function updateVenueSettings(
     smartMonetizationEnabled?: boolean;
     suggestionModeEnabled?: boolean;
     crowdControlEnabled?: boolean;
+    activePlaylistId?: string | null;
+    playlistPriority?: boolean;
   },
 ): Promise<Venue> {
   return prisma.venue.update({
