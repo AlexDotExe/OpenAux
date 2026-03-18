@@ -9,9 +9,19 @@ export async function recordPlayback(data: {
   sessionId: string;
   songId: string;
   crowdScore?: number;
+  venueId?: string;
+  skipInitiatedByAdmin?: boolean;
+  skipInitiatedByUserId?: string;
 }): Promise<PlaybackHistory> {
   return prisma.playbackHistory.create({
-    data: { ...data, crowdScore: data.crowdScore ?? 0 },
+    data: {
+      sessionId: data.sessionId,
+      songId: data.songId,
+      crowdScore: data.crowdScore ?? 0,
+      venueId: data.venueId,
+      skipInitiatedByAdmin: data.skipInitiatedByAdmin ?? false,
+      skipInitiatedByUserId: data.skipInitiatedByUserId,
+    },
   });
 }
 

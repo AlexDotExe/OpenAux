@@ -39,3 +39,20 @@ export async function updateEnergyLevel(sessionId: string, energyLevel: number):
     data: { currentEnergyLevel: clamped },
   });
 }
+
+export async function incrementTotalSongsPlayed(sessionId: string): Promise<void> {
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: { totalSongsPlayed: { increment: 1 } },
+  });
+}
+
+export async function updatePeakActiveUsers(sessionId: string, activeCount: number): Promise<void> {
+  // Use updateMany with a conditional filter to atomically update only when the new count exceeds
+  // the stored peak, avoiding a separate read-then-write and preventing race conditions.
+  // A count of 0 updated rows simply means the current peak is already >= activeCount.
+  await prisma.session.updateMany({
+    where: { id: sessionId, peakActiveUsers: { lt: activeCount } },
+    data: { peakActiveUsers: activeCount },
+  });
+}

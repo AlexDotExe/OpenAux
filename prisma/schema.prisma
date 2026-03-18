@@ -131,6 +131,7 @@ model Venue {
   adminActions     AdminAction[]
   payments         Payment[]
   userSnapshots    ActiveUserSnapshot[]
+  playbacks        PlaybackHistory[]
 
   @@index([name])
   @@index([adminUsername])
@@ -171,6 +172,9 @@ model Session {
   isActive           Boolean         @default(true)
   // simulatedUserCount: for testing smart monetization behavior
   simulatedUserCount Int             @default(0)
+  // Analytics counters (#analytics)
+  totalSongsPlayed   Int             @default(0) // Incremented each time a song is recorded in PlaybackHistory
+  peakActiveUsers    Int             @default(0) // Highest concurrent active user count during session
   requests           SongRequest[]
   playbacks          PlaybackHistory[]
   userSessions       UserSession[]
@@ -217,6 +221,7 @@ model SongRequest {
   status     RequestStatus @default(PENDING)
   createdAt  DateTime      @default(now())
   votes      Vote[]
+  payments   Payment[]
   // Boost monetization fields
   isBoosted    Boolean  @default(false)
   boostAmount  Float    @default(0.0)
@@ -246,6 +251,7 @@ model Vote {
   @@unique([requestId, userId])
   @@index([requestId])
   @@index([userId])
+  @@index([createdAt])
 }
 
 // ─── Playback & History ──────────────────────────────────────────────────────
@@ -254,6 +260,8 @@ model PlaybackHistory {
   id              String         @id @default(uuid())
   sessionId       String
   session         Session        @relation(fields: [sessionId], references: [id])
+  venueId         String?        // Denormalized from session for analytics query performance
+  venue           Venue?         @relation(fields: [venueId], references: [id])
   songId          String
   song            Song           @relation(fields: [songId], references: [id])
   playedAt        DateTime       @default(now())
@@ -266,10 +274,15 @@ model PlaybackHistory {
   // Skip analytics (#29)
   skippedAt       DateTime?      // When the song was skipped (null if played fully)
   skipPositionMs  Int?           // How far into the song it was skipped (ms)
+  // Skip initiator tracking (#analytics) — who triggered the skip?
+  skipInitiatedByAdmin  Boolean  @default(false) // True if venue admin skipped, false if user-initiated
+  skipInitiatedByUserId String?  // If user-initiated skip, which user
 
   @@index([sessionId])
   @@index([songId])
   @@index([source])
+  @@index([playedAt])
+  @@index([venueId, playedAt])
 }
 
 model Blacklist {
@@ -299,6 +312,9 @@ model Payment {
   // Revenue split at time of transaction
   venueShareAmount   Float?      // Venue's cut
   platformShareAmount Float?     // OpenAux's cut
+  // Link boost payments to the specific song request (#analytics)
+  requestId        String?       // Populated for BOOST payments to identify which song was boosted
+  request          SongRequest?  @relation(fields: [requestId], references: [id])
   createdAt        DateTime      @default(now())
   completedAt      DateTime?
 
@@ -306,6 +322,8 @@ model Payment {
   @@index([venueId])
   @@index([status])
   @@index([type])
+  @@index([createdAt])
+  @@index([venueId, createdAt])
 }
 
 model CreditTransaction {

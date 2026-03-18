@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
       stripePaymentId: paymentIntent.id,
       venueShareAmount,
       platformShareAmount,
+      requestId,
     });
 
     return NextResponse.json({

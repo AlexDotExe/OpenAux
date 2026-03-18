@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findSessionById } from '@/lib/db/sessions';
 import { joinOrRejoinUserSession } from '@/lib/db/userSessions';
+import { countActiveUsersInSession, recordActiveUserSnapshot } from '@/lib/db/snapshots';
 
 /**
  * POST /api/sessions/[sessionId]/join
@@ -29,6 +30,11 @@ export async function POST(
     }
 
     const userSession = await joinOrRejoinUserSession(userId, sessionId);
+
+    // Record active user snapshot and update peak (fire and forget)
+    countActiveUsersInSession(sessionId)
+      .then((activeCount) => recordActiveUserSnapshot(session.venueId, sessionId, activeCount))
+      .catch(console.error);
 
     return NextResponse.json({
       expiresAt: userSession.expiresAt.toISOString(),
