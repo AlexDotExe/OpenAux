@@ -40,21 +40,24 @@ export async function POST(
         const playlist = await findPlaylistById(venue.activePlaylistId);
         if (playlist && playlist.venueId === venueId && playlist.songs.length > 0) {
           const systemUser = await findOrCreateSystemUser(venueId);
-          for (const ps of playlist.songs) {
-            // Skip if this song is already in the queue (e.g. from a prior partial load)
-            const existing = await prisma.songRequest.findFirst({
-              where: { sessionId: session.id, songId: ps.songId, status: { in: ['PENDING', 'APPROVED'] } },
+
+          // Fetch all existing pending/approved requests for this session in one query
+          const existingRequests = await prisma.songRequest.findMany({
+            where: { sessionId: session.id, status: { in: ['PENDING', 'APPROVED'] } },
+            select: { songId: true },
+          });
+          const existingSongIds = new Set(existingRequests.map((r) => r.songId));
+
+          const songsToAdd = playlist.songs.filter((ps) => !existingSongIds.has(ps.songId));
+          if (songsToAdd.length > 0) {
+            await prisma.songRequest.createMany({
+              data: songsToAdd.map((ps) => ({
+                sessionId: session.id,
+                songId: ps.songId,
+                userId: systemUser.id,
+                isPreloaded: true,
+              })),
             });
-            if (!existing) {
-              await prisma.songRequest.create({
-                data: {
-                  sessionId: session.id,
-                  songId: ps.songId,
-                  userId: systemUser.id,
-                  isPreloaded: true,
-                },
-              });
-            }
           }
         }
       }

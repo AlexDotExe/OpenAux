@@ -401,7 +401,7 @@ export function PlaylistManager({
             {searchResults.length > 0 && (
               <div className="space-y-1 max-h-40 overflow-y-auto">
                 {searchResults.map((result, idx) => {
-                  const key = result.serviceId ?? result.spotifyId ?? result.youtubeId ?? result.id ?? String(idx);
+                  const key = result.serviceId ?? result.spotifyId ?? result.youtubeId ?? result.id ?? `${result.title}-${result.artist}-${idx}`;
                   return (
                     <button
                       key={key}
