@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findVenueById } from '@/lib/db/venues';
 import { startSession, stopSession, findActiveSession } from '@/lib/services/sessionService';
+import { findPlaylistById } from '@/lib/db/playlists';
+import { findOrCreateSystemUser } from '@/lib/db/users';
+import { prisma } from '@/lib/db/prisma';
 
 /**
  * Admin-only: Start or end a session for a venue.
@@ -30,6 +33,35 @@ export async function POST(
 
     if (action === 'start') {
       const session = await startSession(venueId);
+
+      // Auto-load the active playlist into the queue as pre-loaded song requests
+      const venue = await findVenueById(venueId);
+      if (venue?.activePlaylistId) {
+        const playlist = await findPlaylistById(venue.activePlaylistId);
+        if (playlist && playlist.venueId === venueId && playlist.songs.length > 0) {
+          const systemUser = await findOrCreateSystemUser(venueId);
+
+          // Fetch all existing pending/approved requests for this session in one query
+          const existingRequests = await prisma.songRequest.findMany({
+            where: { sessionId: session.id, status: { in: ['PENDING', 'APPROVED'] } },
+            select: { songId: true },
+          });
+          const existingSongIds = new Set(existingRequests.map((r) => r.songId));
+
+          const songsToAdd = playlist.songs.filter((ps) => !existingSongIds.has(ps.songId));
+          if (songsToAdd.length > 0) {
+            await prisma.songRequest.createMany({
+              data: songsToAdd.map((ps) => ({
+                sessionId: session.id,
+                songId: ps.songId,
+                userId: systemUser.id,
+                isPreloaded: true,
+              })),
+            });
+          }
+        }
+      }
+
       return NextResponse.json(session, { status: 201 });
     }
 

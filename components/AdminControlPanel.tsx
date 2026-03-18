@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { NowPlaying } from './NowPlaying';
+import { PlaylistManager } from './PlaylistManager';
+import { SponsorSongsManager } from './SponsorSongsManager';
 import type { PendingSuggestion } from '@/app/admin/[venueId]/page';
 
 interface SpotifyDevice {
@@ -10,6 +12,17 @@ interface SpotifyDevice {
   name: string;
   type: string;
   is_active: boolean;
+}
+
+interface SponsorSong {
+  id: string;
+  songId: string;
+  promotionText: string | null;
+  isAnthem: boolean;
+  song: {
+    title: string;
+    artist: string;
+  };
 }
 
 interface QueueItem {
@@ -22,6 +35,7 @@ interface QueueItem {
   spotifyId?: string;
   youtubeId?: string;
   userId?: string;
+  isPreloaded?: boolean;
 }
 
 interface Props {
@@ -50,8 +64,14 @@ interface Props {
   setSmartMonetizationEnabled: (val: boolean) => void;
   suggestionModeEnabled: boolean;
   setSuggestionModeEnabled: (val: boolean) => void;
+  crowdControlEnabled: boolean;
+  setCrowdControlEnabled: (val: boolean) => void;
   onSaveSettings: () => void;
   settingsSaveStatus: string | null;
+  // Playlist settings
+  activePlaylistId: string | null;
+  playlistPriority: boolean;
+  onPlaylistSettingsChange: (activePlaylistId: string | null, playlistPriority: boolean) => void;
   // Active Users
   userCount: number;
   simulatedUsers: number;
@@ -101,8 +121,13 @@ export function AdminControlPanel({
   setSmartMonetizationEnabled,
   suggestionModeEnabled,
   setSuggestionModeEnabled,
+  crowdControlEnabled,
+  setCrowdControlEnabled,
   onSaveSettings,
   settingsSaveStatus,
+  activePlaylistId,
+  playlistPriority,
+  onPlaylistSettingsChange,
   userCount,
   simulatedUsers,
   onSimulatedUsersChange,
@@ -121,6 +146,74 @@ export function AdminControlPanel({
 }: Props) {
   const [devices, setDevices] = useState<SpotifyDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
+
+  // Sponsor songs state
+  const [sponsorSongs, setSponsorSongs] = useState<SponsorSong[]>([]);
+  const [sponsorSongsLoading, setSponsorSongsLoading] = useState(false);
+  const [sponsorSongForm, setSponsorSongForm] = useState({
+    songId: '',
+    promotionText: '',
+    isAnthem: false,
+  });
+  const [sponsorSongStatus, setSponsorSongStatus] = useState<string | null>(null);
+
+  const fetchSponsorSongs = useCallback(async () => {
+    setSponsorSongsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/${venueId}/sponsor-songs?adminPassword=${encodeURIComponent(password)}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSponsorSongs(data.sponsorSongs ?? []);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setSponsorSongsLoading(false);
+    }
+  }, [venueId, password]);
+
+  const handleAddSponsorSong = async () => {
+    if (!sponsorSongForm.songId.trim()) return;
+    setSponsorSongStatus(null);
+    try {
+      const res = await fetch(`/api/admin/${venueId}/sponsor-songs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPassword: password,
+          songId: sponsorSongForm.songId.trim(),
+          promotionText: sponsorSongForm.promotionText.trim() || null,
+          isAnthem: sponsorSongForm.isAnthem,
+        }),
+      });
+      if (res.ok) {
+        setSponsorSongStatus('Song added!');
+        setSponsorSongForm({ songId: '', promotionText: '', isAnthem: false });
+        await fetchSponsorSongs();
+        setTimeout(() => setSponsorSongStatus(null), 3000);
+      } else {
+        const data = await res.json();
+        setSponsorSongStatus(`Error: ${data.error}`);
+      }
+    } catch {
+      setSponsorSongStatus('Failed to add sponsor song');
+    }
+  };
+
+  const handleRemoveSponsorSong = async (songId: string) => {
+    try {
+      await fetch(`/api/admin/${venueId}/sponsor-songs`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: password, songId }),
+      });
+      await fetchSponsorSongs();
+    } catch {
+      // Ignore
+    }
+  };
 
   const fetchDevices = useCallback(async () => {
     setLoadingDevices(true);
@@ -142,6 +235,10 @@ export function AdminControlPanel({
       fetchDevices();
     }
   }, [streamingService, isConnected, fetchDevices]);
+
+  useEffect(() => {
+    fetchSponsorSongs();
+  }, [fetchSponsorSongs]);
 
   const handleDisconnect = async () => {
     await fetch(`/api/admin/${venueId}/disconnect`, { method: 'POST' });
@@ -347,6 +444,28 @@ export function AdminControlPanel({
             </p>
           </div>
 
+          {/* Crowd Control Toggle */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium">Crowd Control Mode</label>
+              <button
+                onClick={() => setCrowdControlEnabled(!crowdControlEnabled)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  crowdControlEnabled ? 'bg-blue-600' : 'bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                    crowdControlEnabled ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              Queue order driven entirely by crowd votes — your actions are logged as overrides
+            </p>
+          </div>
+
           {/* Manual Controls - Only show when Smart Monetization is OFF */}
           {!smartMonetizationEnabled && (
             <>
@@ -470,6 +589,84 @@ export function AdminControlPanel({
         </div>
       )}
 
+      {/* Sponsor / Anthem Songs Section */}
+      <div className="space-y-3 border-t border-gray-800 pt-4">
+        <h3 className="text-sm font-medium text-gray-400">Anthem &amp; Sponsor Songs</h3>
+        <p className="text-xs text-gray-500">
+          When these songs come up in the queue or start playing, all users see a special announcement.
+        </p>
+
+        {sponsorSongStatus && (
+          <div className="bg-gray-800 rounded-lg p-2 text-xs text-amber-300">{sponsorSongStatus}</div>
+        )}
+
+        {/* Add sponsor song form */}
+        <div className="space-y-2">
+          <input
+            type="text"
+            placeholder="Song ID (from DB)"
+            value={sponsorSongForm.songId}
+            onChange={(e) => setSponsorSongForm(prev => ({ ...prev, songId: e.target.value }))}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+          />
+          <input
+            type="text"
+            placeholder="Promotion text (e.g. $2 off tequila shots)"
+            value={sponsorSongForm.promotionText}
+            onChange={(e) => setSponsorSongForm(prev => ({ ...prev, promotionText: e.target.value }))}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+          />
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sponsorSongForm.isAnthem}
+                onChange={(e) => setSponsorSongForm(prev => ({ ...prev, isAnthem: e.target.checked }))}
+                className="rounded border-gray-600"
+              />
+              🎺 Mark as Venue Anthem
+            </label>
+            <button
+              onClick={handleAddSponsorSong}
+              disabled={!sponsorSongForm.songId.trim()}
+              className="text-xs bg-amber-700 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded transition-colors"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        {/* Sponsor songs list */}
+        {sponsorSongsLoading ? (
+          <p className="text-xs text-gray-500">Loading...</p>
+        ) : sponsorSongs.length === 0 ? (
+          <p className="text-xs text-gray-500">No sponsor or anthem songs configured.</p>
+        ) : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {sponsorSongs.map((ss) => (
+              <div key={ss.id} className="flex items-start gap-2 bg-gray-800 rounded-lg p-2 text-xs">
+                <span className="text-base shrink-0 mt-0.5">{ss.isAnthem ? '🎺' : '⭐'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{ss.song.title}</p>
+                  <p className="text-gray-400 truncate">{ss.song.artist}</p>
+                  {ss.promotionText && (
+                    <p className="text-amber-400 truncate">🎁 {ss.promotionText}</p>
+                  )}
+                  <p className="text-gray-600 truncate">ID: {ss.songId}</p>
+                </div>
+                <button
+                  onClick={() => handleRemoveSponsorSong(ss.songId)}
+                  className="bg-gray-700 hover:bg-red-900 text-white px-2 py-1 rounded transition-colors shrink-0"
+                  title="Remove"
+                >
+                  🗑
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Pending Suggestions Section */}
       {activeSession && suggestionModeEnabled && (
         <div className="space-y-3 border-t border-gray-800 pt-4">
@@ -538,6 +735,25 @@ export function AdminControlPanel({
         </div>
       )}
 
+      {/* Playlists Section */}
+      <div className="space-y-3 border-t border-gray-800 pt-4">
+        <h3 className="text-sm font-medium text-gray-400">Playlists</h3>
+        <PlaylistManager
+          venueId={venueId}
+          password={password}
+          activePlaylistId={activePlaylistId}
+          playlistPriority={playlistPriority}
+          onSettingsChange={onPlaylistSettingsChange}
+        />
+      </div>
+
+      {/* Sponsor Songs Section */}
+      {activeSession && (
+        <div className="space-y-3 border-t border-gray-800 pt-4">
+          <SponsorSongsManager venueId={venueId} password={password} loading={loading} />
+        </div>
+      )}
+
       {/* Now Playing Section */}
       {activeSession && isConnected && (
         <div className="border-t border-gray-800 pt-4">
@@ -556,7 +772,19 @@ export function AdminControlPanel({
       {/* Queue Section */}
       {queue.length > 0 && (
         <div className="space-y-3 border-t border-gray-800 pt-4">
-          <h3 className="text-sm font-medium text-gray-400">Queue ({queue.length})</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-400">Queue ({queue.length})</h3>
+            {crowdControlEnabled && (
+              <span className="text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded-full">
+                🗳 Crowd Controlled
+              </span>
+            )}
+          </div>
+          {crowdControlEnabled && (
+            <p className="text-xs text-blue-400">
+              Queue order is crowd-driven. Actions below are override operations and will be logged.
+            </p>
+          )}
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {queue.map((item, idx) => (
               <div key={item.requestId} className="flex items-center gap-2 text-xs">
@@ -564,13 +792,16 @@ export function AdminControlPanel({
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{item.title}</p>
                   <p className="text-gray-400 truncate">{item.artist}</p>
+                  {item.isPreloaded && (
+                    <span className="text-xs text-purple-400">♫ Playlist</span>
+                  )}
                 </div>
                 <span className="text-gray-500">{item.score.toFixed(1)}</span>
                 <button
                   onClick={() => onPlayNow(item.requestId)}
                   disabled={loading}
                   className="bg-green-700 hover:bg-green-600 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                  title="Play now"
+                  title={crowdControlEnabled ? 'Override: Play now (logged)' : 'Play now'}
                 >
                   ▶
                 </button>
@@ -578,7 +809,7 @@ export function AdminControlPanel({
                   onClick={() => onDelete(item.requestId)}
                   disabled={loading}
                   className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                  title="Delete"
+                  title={crowdControlEnabled ? 'Override: Delete (logged)' : 'Delete'}
                 >
                   🗑
                 </button>
@@ -586,7 +817,7 @@ export function AdminControlPanel({
                   onClick={() => onSkip(item.requestId)}
                   disabled={loading}
                   className="bg-gray-800 hover:bg-red-900 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                  title="Skip"
+                  title={crowdControlEnabled ? 'Override: Skip (logged)' : 'Skip'}
                 >
                   ⏭
                 </button>

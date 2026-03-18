@@ -125,6 +125,12 @@ model Venue {
   latitude  Float?
   longitude Float?
 
+  // ── Playlist settings (#18) ──
+  // activePlaylistId: the playlist to auto-load into the queue when a session starts
+  activePlaylistId String?
+  // playlistPriority: when true, pre-loaded playlist songs are sorted before crowd requests
+  playlistPriority Boolean @default(false)
+
   // ── Relations ──
   sponsorSongs     SponsorSong[]
   playlists        VenuePlaylist[]
@@ -230,6 +236,8 @@ model SongRequest {
   isRefundEligible Boolean  @default(false) // True if user paid for boost
   isRefunded       Boolean  @default(false)
   refundedAt       DateTime?
+  // Playlist pre-load flag (#18) — true when added by venue playlist auto-load
+  isPreloaded      Boolean  @default(false)
 
   @@index([sessionId, status])
   @@index([songId])
@@ -346,17 +354,22 @@ model CreditTransaction {
 // ─── Sponsor Songs & Promotions (#15, #23) ───────────────────────────────────
 
 model SponsorSong {
-  id                     String   @id @default(uuid())
+  id                     String    @id @default(uuid())
   venueId                String
-  venue                  Venue    @relation(fields: [venueId], references: [id])
+  venue                  Venue     @relation(fields: [venueId], references: [id])
   songId                 String
-  song                   Song     @relation(fields: [songId], references: [id])
+  song                   Song      @relation(fields: [songId], references: [id])
   // Promotion details
-  promotionText          String?  // e.g. "$2 off tequila shots"
-  promotionDurationMinutes Int    @default(5) // How long the promo lasts after song plays
-  isActive               Boolean  @default(true)
-  isAnthem               Boolean  @default(false) // Venue's signature anthem
-  createdAt              DateTime @default(now())
+  promotionText          String?   // e.g. "$2 off tequila shots"
+  promotionDurationMinutes Int     @default(5) // How long the promo lasts after song plays
+  isActive               Boolean   @default(true)
+  isAnthem               Boolean   @default(false) // Venue's signature anthem
+  // Promotion activation tracking
+  promotionActivatedAt   DateTime? // When the promotion was last activated (song played)
+  promotionExpiresAt     DateTime? // When the active promotion expires
+  // Analytics: count how many times this sponsor song's promo has been activated
+  activationCount        Int       @default(0)
+  createdAt              DateTime  @default(now())
 
   @@unique([venueId, songId])
   @@index([venueId])

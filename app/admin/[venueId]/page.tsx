@@ -28,6 +28,7 @@ interface QueueItem {
   spotifyId?: string;
   youtubeId?: string;
   userId?: string;
+  isPreloaded?: boolean;
 }
 
 export interface PendingSuggestion {
@@ -59,8 +60,12 @@ export default function AdminPage() {
   const [monetizationEnabled, setMonetizationEnabled] = useState(false);
   const [smartMonetizationEnabled, setSmartMonetizationEnabled] = useState(false);
   const [suggestionModeEnabled, setSuggestionModeEnabled] = useState(false);
+  const [crowdControlEnabled, setCrowdControlEnabled] = useState(true);
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<string | null>(null);
   const [simulatedUsers, setSimulatedUsers] = useState(0);
+  // Playlist settings state
+  const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
+  const [playlistPriority, setPlaylistPriority] = useState(false);
   // Pending suggestions state
   const [pendingSuggestions, setPendingSuggestions] = useState<PendingSuggestion[]>([]);
   const [payments, setPayments] = useState<Array<{
@@ -124,6 +129,9 @@ export default function AdminPage() {
         setMonetizationEnabled(settings.monetizationEnabled ?? false);
         setSmartMonetizationEnabled(settings.smartMonetizationEnabled ?? false);
         setSuggestionModeEnabled(settings.suggestionModeEnabled ?? false);
+        setCrowdControlEnabled(settings.crowdControlEnabled ?? true);
+        setActivePlaylistId(settings.activePlaylistId ?? null);
+        setPlaylistPriority(settings.playlistPriority ?? false);
       }
     } catch (err) {
       console.error('Failed to load venue settings:', err);
@@ -231,7 +239,21 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const handleSkip = (requestId: string) => handleAdvance(requestId, true);
+  const handleSkip = async (requestId: string) => {
+    if (!venueData?.activeSession) return;
+    setLoading(true);
+    const res = await fetch(`/api/admin/${params.venueId}/requests/${requestId}/skip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword: password }),
+    });
+    const data = await res.json();
+    if (data.service === 'youtube' && data.trackId) {
+      setCurrentYoutubeId(data.trackId);
+    }
+    await load();
+    setLoading(false);
+  };
 
   const handleTrackEnded = async () => {
     // Auto-advance when track finishes
@@ -355,6 +377,9 @@ export default function AdminPage() {
           monetizationEnabled,
           smartMonetizationEnabled,
           suggestionModeEnabled,
+          crowdControlEnabled,
+          activePlaylistId,
+          playlistPriority,
         }),
       });
       const data = await res.json();
@@ -370,6 +395,31 @@ export default function AdminPage() {
       setSettingsSaveStatus('Failed to save settings');
     }
     setLoading(false);
+  };
+
+  /**
+   * Immediately persist playlist settings (active playlist + priority) when changed
+   * from the PlaylistManager UI, without requiring "Save Settings" click.
+   */
+  const handlePlaylistSettingsChange = async (
+    newActivePlaylistId: string | null,
+    newPlaylistPriority: boolean,
+  ) => {
+    setActivePlaylistId(newActivePlaylistId);
+    setPlaylistPriority(newPlaylistPriority);
+    try {
+      await fetch(`/api/venues/${params.venueId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPassword: password,
+          activePlaylistId: newActivePlaylistId,
+          playlistPriority: newPlaylistPriority,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to save playlist settings:', err);
+    }
   };
 
   if (!authed) {
@@ -443,8 +493,14 @@ export default function AdminPage() {
           setSmartMonetizationEnabled={setSmartMonetizationEnabled}
           suggestionModeEnabled={suggestionModeEnabled}
           setSuggestionModeEnabled={setSuggestionModeEnabled}
+          crowdControlEnabled={crowdControlEnabled}
+          setCrowdControlEnabled={setCrowdControlEnabled}
           onSaveSettings={handleSaveSettings}
           settingsSaveStatus={settingsSaveStatus}
+          // Playlist settings
+          activePlaylistId={activePlaylistId}
+          playlistPriority={playlistPriority}
+          onPlaylistSettingsChange={handlePlaylistSettingsChange}
           // Active Users
           userCount={userCount}
           simulatedUsers={simulatedUsers}

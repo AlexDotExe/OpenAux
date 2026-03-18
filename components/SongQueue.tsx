@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSessionStore } from '@/lib/store/useSessionStore';
 import { loadStripe } from '@stripe/stripe-js';
 import {
@@ -56,6 +56,10 @@ function calculateWaitTimeMs(songs: Song[], index: number, nowPlayingRemainingMs
 function formatWaitTime(ms: number): string {
   const minutes = Math.round(ms / 60000);
   return minutes < 1 ? '< 1 min' : `~${minutes} min`;
+}
+
+function formatPrice(price: number): string {
+  return price % 1 === 0 ? `$${price.toFixed(0)}` : `$${price.toFixed(2)}`;
 }
 
 // Inner payment form rendered inside <Elements>
@@ -156,6 +160,32 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
   const [boostStatus, setBoostStatus] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);
+
+  // Track queue position changes to show movement indicators
+  const prevPositionsRef = useRef<Map<string, number>>(new Map());
+  const [positionChanges, setPositionChanges] = useState<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    const currentPositions = new Map<string, number>();
+    const newChanges = new Map<string, number>();
+
+    displayQueue.forEach((song, idx) => {
+      currentPositions.set(song.requestId, idx);
+      const prevIdx = prevPositionsRef.current.get(song.requestId);
+      if (prevIdx !== undefined && prevIdx !== idx) {
+        // Positive delta = moved up in queue (toward position 0)
+        newChanges.set(song.requestId, prevIdx - idx);
+      }
+    });
+
+    prevPositionsRef.current = currentPositions;
+    setPositionChanges(newChanges);
+
+    if (newChanges.size > 0) {
+      const timer = setTimeout(() => setPositionChanges(new Map()), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [displayQueue]);
 
   const handleBoostClick = async (requestId: string) => {
     setSelectedRequestId(requestId);
@@ -271,14 +301,40 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
         {displayQueue.map((song, idx) => (
           <div key={song.requestId} className="space-y-2">
             {/* Queue Position Indicator - Only show for user's songs */}
-            {isUserSong(song) && idx > 0 && (
-              <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-3 space-y-1">
-                <p className="text-sm text-blue-300 text-center">
-                  📍 {idx === 1 ? 'Next up!' : `${idx} songs ahead of yours`}
+            {isUserSong(song) && (
+              <div className={`border rounded-lg p-3 space-y-1 ${
+                idx === 0
+                  ? 'bg-green-900/20 border-green-700'
+                  : 'bg-blue-900/20 border-blue-700'
+              }`}>
+                <p className={`text-sm font-semibold text-center ${idx === 0 ? 'text-green-300' : 'text-blue-300'}`}>
+                  {idx === 0
+                    ? '🎵 Your song is playing now!'
+                    : `📍 Your song: #${idx + 1} in queue${idx === 1 ? ' — Next up!' : ''}`
+                  }
                 </p>
-                <p className="text-xs text-blue-400 text-center">
-                  ⏱ Estimated play time: {formatWaitTime(calculateWaitTimeMs(displayQueue, idx, nowPlayingRemainingMs))}
-                </p>
+                {/* Position change indicator */}
+                {(() => {
+                  const change = positionChanges.get(song.requestId);
+                  if (!change) return null;
+                  return (
+                    <p className={`text-xs font-semibold text-center ${change > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {change > 0
+                        ? `▲ Moved up ${change} spot${change !== 1 ? 's' : ''}!`
+                        : `▼ Moved down ${Math.abs(change)} spot${Math.abs(change) !== 1 ? 's' : ''}`
+                      }
+                    </p>
+                  );
+                })()}
+                {idx === 0 ? (
+                  <p className="text-xs text-green-400 text-center">
+                    🎶 Enjoy the music!
+                  </p>
+                ) : (
+                  <p className="text-xs text-blue-400 text-center">
+                    ⏱ Estimated play time: {formatWaitTime(calculateWaitTimeMs(displayQueue, idx, nowPlayingRemainingMs))}
+                  </p>
+                )}
               </div>
             )}
 
@@ -357,7 +413,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                           : 'bg-yellow-600 hover:bg-yellow-700 text-black'
                       } disabled:opacity-40`}
                     >
-                      ⚡ {boostPrice === 0 ? 'Priority Boost +3 Spots (Free)' : `Priority Boost +3 Spots - $${boostPrice.toFixed(2)}`}
+                      ⚡ {boostPrice === 0 ? `Boost to #${boostedIdx + 1} (Free)` : `Boost to #${boostedIdx + 1} for ${formatPrice(boostPrice)}`}
                     </button>
                     {savingsMs > 0 && (
                       <p className="text-xs text-yellow-400 text-center">
@@ -397,8 +453,8 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                     }}
                   >
                     <p className="text-gray-400 text-sm">
-                      Move this song up 3 spots in the queue for{' '}
-                      <span className="text-yellow-400 font-semibold">${boostPrice.toFixed(2)}</span>.
+                      Move this song to <span className="text-yellow-400 font-semibold">#{boostedIdx + 1}</span> in the queue for{' '}
+                      <span className="text-yellow-400 font-semibold">{formatPrice(boostPrice)}</span>.
                     </p>
                     {savingsMs > 0 && (
                       <p className="text-sm text-yellow-400">
@@ -434,7 +490,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                 !boostStatus ? (
                   <>
                     <p className="text-gray-400">
-                      Boost this song up 3 spots in the queue for free?
+                      Boost this song to <span className="text-green-400 font-semibold">#{boostedIdx + 1}</span> in the queue for free?
                     </p>
                     <p className="text-sm text-gray-500">
                       Songs with votes and a boost jump ahead of similarly-scored songs.
