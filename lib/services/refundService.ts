@@ -5,8 +5,8 @@
  */
 
 import { stripe } from '../stripe';
-import { findCompletedPaymentByRequestId, updatePaymentStatus } from '../db/payments';
-import { markRequestRefunded } from '../db/requests';
+import { findCompletedPaymentByRequestId } from '../db/payments';
+import { prisma } from '../db/prisma';
 
 export interface RefundResult {
   refunded: boolean;
@@ -16,6 +16,9 @@ export interface RefundResult {
 /**
  * Process a Stripe refund for a paid boost on a song request.
  * No-ops if the request has no completed payment or was already refunded.
+ * Both DB updates (payment + request) run inside a Prisma transaction so they
+ * either both succeed or both roll back, keeping records consistent after the
+ * Stripe refund completes.
  * Errors are caught and logged so callers are not blocked.
  */
 export async function processBoostRefund(requestId: string): Promise<RefundResult> {
@@ -33,15 +36,30 @@ export async function processBoostRefund(requestId: string): Promise<RefundResul
     return { refunded: false, reason: 'No Stripe payment ID on record' };
   }
 
-  try {
-    await stripe.refunds.create({ payment_intent: payment.stripePaymentId });
-    await updatePaymentStatus(payment.id, 'REFUNDED');
-    await markRequestRefunded(requestId);
+  // Issue the Stripe refund first; if it fails we throw and the DB is unchanged.
+  await stripe.refunds.create({ payment_intent: payment.stripePaymentId });
 
-    console.log(`[refundService] Refunded boost payment ${payment.id} for request ${requestId}`);
-    return { refunded: true, reason: 'Refund processed successfully' };
-  } catch (err) {
-    console.error(`[refundService] Failed to refund payment ${payment.id} for request ${requestId}:`, err);
-    throw err;
+  // Persist the refund state atomically: both records update or neither does.
+  try {
+    await prisma.$transaction([
+      prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'REFUNDED' },
+      }),
+      prisma.songRequest.update({
+        where: { id: requestId },
+        data: { isRefunded: true, refundedAt: new Date() },
+      }),
+    ]);
+  } catch (dbErr) {
+    // Stripe refund succeeded but DB update failed — log for manual reconciliation.
+    console.error(
+      `[refundService] DB update failed after Stripe refund for payment ${payment.id} / request ${requestId}:`,
+      dbErr,
+    );
+    throw dbErr;
   }
+
+  console.log(`[refundService] Refunded boost payment ${payment.id} for request ${requestId}`);
+  return { refunded: true, reason: 'Refund processed successfully' };
 }

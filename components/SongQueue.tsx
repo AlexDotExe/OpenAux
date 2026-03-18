@@ -79,7 +79,6 @@ function RefundPolicyTooltip() {
         onMouseLeave={() => setVisible(false)}
         onFocus={() => setVisible(true)}
         onBlur={() => setVisible(false)}
-        onClick={() => setVisible((v) => !v)}
         className="text-gray-400 hover:text-yellow-300 focus:outline-none text-xs leading-none"
       >
         ⓘ
@@ -87,7 +86,7 @@ function RefundPolicyTooltip() {
       {visible && (
         <span
           role="tooltip"
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-lg bg-gray-800 border border-gray-600 px-3 py-2 text-xs text-gray-200 shadow-lg z-10 pointer-events-none"
+          className="absolute bottom-full right-0 mb-2 w-56 rounded-lg bg-gray-800 border border-gray-600 px-3 py-2 text-xs text-gray-200 shadow-lg z-10 pointer-events-none text-left"
         >
           {REFUND_POLICY_MESSAGE}
         </span>
