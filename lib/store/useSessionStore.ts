@@ -61,6 +61,7 @@ export interface SessionState {
   setQueue: (queue: Song[]) => void;
   setNowPlaying: (song: Song | null) => void;
   updateUserVote: (requestId: string, vote: 1 | -1) => void;
+  setCreditBalance: (creditBalance: number) => void;
 
   // Auth actions
   setAuthUser: (params: {
@@ -125,6 +126,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         s.requestId === requestId ? { ...s, userVote: vote } : s,
       ),
     })),
+
+  setCreditBalance: (creditBalance) => set({ creditBalance }),
 
   setAuthUser: ({ userId, authToken, email, authProvider, displayName, reputationScore, influenceWeight, creditBalance, stayLoggedIn }) => {
     if (typeof window !== 'undefined') {

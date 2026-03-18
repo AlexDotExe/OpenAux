@@ -79,6 +79,14 @@ export default function AdminPage() {
     createdAt: string;
     completedAt: string | null;
   }>>([]);
+  const [creditTransactions, setCreditTransactions] = useState<Array<{
+    id: string;
+    amount: number;
+    type: string;
+    description: string | null;
+    createdAt: string;
+    user: { displayName: string | null; email: string | null };
+  }>>([]);
 
   const formatAdminError = useCallback((error: string) => {
     switch (error) {
@@ -223,6 +231,21 @@ export default function AdminPage() {
     }
   }, [params.venueId]);
 
+  const loadCreditTransactions = useCallback(async () => {
+    if (!params.venueId || !password) return;
+    try {
+      const res = await fetch(
+        `/api/admin/${params.venueId}/credit-transactions?adminPassword=${encodeURIComponent(password)}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCreditTransactions(data.transactions ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to load credit transactions:', err);
+    }
+  }, [params.venueId, password]);
+
   const load = useCallback(async () => {
     if (!params.venueId) return;
     const res = await fetch(`/api/venues/${params.venueId}`);
@@ -251,9 +274,10 @@ export default function AdminPage() {
         await load();
         await loadSettings();
         await loadPayments();
+        await loadCreditTransactions();
       })();
     }
-  }, [authed, load, loadSettings, loadPayments]);
+  }, [authed, load, loadSettings, loadPayments, loadCreditTransactions]);
 
   useEffect(() => {
     if (!authed) return;
@@ -589,24 +613,67 @@ export default function AdminPage() {
             {/* Revenue Summary */}
             {(() => {
               const completed = payments.filter(p => p.status === 'COMPLETED');
+              const refunded = payments.filter(p => p.status === 'REFUNDED');
               const totalRevenue = completed.reduce((sum, p) => sum + p.amount, 0);
               const venueRevenue = completed.reduce((sum, p) => sum + (p.venueShareAmount ?? 0), 0);
               const platformRevenue = completed.reduce((sum, p) => sum + (p.platformShareAmount ?? 0), 0);
+              const totalRefunded = refunded.reduce((sum, p) => sum + p.amount, 0);
               return (
-                <div className="grid grid-cols-3 gap-2 bg-gray-800 rounded-lg p-3 text-center">
-                  <div>
-                    <p className="text-xs text-gray-400">Total</p>
-                    <p className="font-semibold text-white">${totalRevenue.toFixed(2)}</p>
+                <>
+                  <div className="grid grid-cols-3 gap-2 bg-gray-800 rounded-lg p-3 text-center">
+                    <div>
+                      <p className="text-xs text-gray-400">Total</p>
+                      <p className="font-semibold text-white">${totalRevenue.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Venue Share</p>
+                      <p className="font-semibold text-green-400">${venueRevenue.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Platform Share</p>
+                      <p className="font-semibold text-blue-400">${platformRevenue.toFixed(2)}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-gray-400">Venue Share</p>
-                    <p className="font-semibold text-green-400">${venueRevenue.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400">Platform Share</p>
-                    <p className="font-semibold text-blue-400">${platformRevenue.toFixed(2)}</p>
-                  </div>
-                </div>
+                  {/* Refund Tracking */}
+                  {refunded.length > 0 && (
+                    <div className="bg-orange-950/40 border border-orange-700/50 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-orange-300">🔄 Refund Tracking</p>
+                        <span className="text-xs text-orange-400 bg-orange-900/40 rounded-full px-2 py-0.5">
+                          {refunded.length} refund{refunded.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-400">Total refunded</span>
+                        <span className="font-semibold text-orange-300">${totalRefunded.toFixed(2)}</span>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Refunds are issued automatically when boosted songs are not played (session ended, skipped, or removed).
+                      </p>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {refunded.map((payment) => (
+                          <div
+                            key={payment.id}
+                            className="flex items-center justify-between text-xs bg-orange-950/30 rounded px-2 py-1.5"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+                              <span className="text-gray-400">Refunded boost</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500">
+                                {new Date(payment.createdAt).toLocaleDateString()}
+                              </span>
+                              <span className="text-orange-300 font-semibold">
+                                -${payment.amount.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               );
             })()}
             {/* Individual payments */}
@@ -619,10 +686,14 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${
                       payment.status === 'COMPLETED' ? 'bg-green-500' :
+                      payment.status === 'REFUNDED' ? 'bg-orange-500' :
                       payment.status === 'FAILED' ? 'bg-red-500' :
                       'bg-yellow-500'
                     }`} />
                     <span className="text-gray-300 capitalize">{payment.type.toLowerCase()}</span>
+                    {payment.status === 'REFUNDED' && (
+                      <span className="text-xs text-orange-400 font-medium">(refunded)</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-gray-400 text-xs">
@@ -630,10 +701,65 @@ export default function AdminPage() {
                     </span>
                     <span className={`font-semibold ${
                       payment.status === 'COMPLETED' ? 'text-green-400' :
+                      payment.status === 'REFUNDED' ? 'text-orange-400' :
                       payment.status === 'FAILED' ? 'text-red-400' :
                       'text-yellow-400'
                     }`}>
                       ${payment.amount.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Credit Transaction History */}
+        {creditTransactions.length > 0 && (
+          <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+            <h2 className="font-semibold text-lg">🪙 Credit Transactions</h2>
+            {/* Summary */}
+            {(() => {
+              const purchases = creditTransactions.filter(t => t.type === 'PURCHASE');
+              const debits = creditTransactions.filter(t => t.type === 'BOOST_DEBIT');
+              const totalPurchased = purchases.reduce((sum, t) => sum + t.amount, 0);
+              const totalSpent = debits.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+              return (
+                <div className="grid grid-cols-2 gap-2 bg-gray-800 rounded-lg p-3 text-center">
+                  <div>
+                    <p className="text-xs text-gray-400">Credits Purchased</p>
+                    <p className="font-semibold text-green-400">{totalPurchased.toFixed(0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Credits Spent</p>
+                    <p className="font-semibold text-yellow-400">{totalSpent.toFixed(0)}</p>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Individual credit transactions */}
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {creditTransactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex items-center justify-between text-sm bg-gray-800 rounded-lg px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-gray-300 truncate">
+                      {tx.user.displayName
+                        ? `DJ ${tx.user.displayName}`
+                        : tx.user.email ?? 'Unknown user'}
+                    </p>
+                    {tx.description && (
+                      <p className="text-xs text-gray-500 truncate">{tx.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 ml-2 shrink-0">
+                    <span className="text-gray-400 text-xs">
+                      {new Date(tx.createdAt).toLocaleDateString()}
+                    </span>
+                    <span className={`font-semibold ${tx.amount > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {tx.amount > 0 ? '+' : ''}{tx.amount.toFixed(0)}
                     </span>
                   </div>
                 </div>

@@ -3,7 +3,8 @@
  * POST /api/requests/[requestId]/boost - Move a song request up ~3 positions in the queue
  *
  * For free boosts (boostPrice === 0): pass { userId }
- * For paid boosts: pass { userId, stripePaymentIntentId } after completing Stripe payment
+ * For paid boosts via Stripe: pass { userId, stripePaymentIntentId } after completing payment
+ * For paid boosts via credits: pass { userId, useCredits: true, authToken }
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,6 +16,8 @@ import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
 import { stripe } from '@/lib/stripe';
 import { findPaymentByStripeId, updatePaymentStatus } from '@/lib/db/payments';
+import { findUserByAuthToken } from '@/lib/db/users';
+import { deductCreditsForBoost } from '@/lib/db/credits';
 
 interface RouteContext {
   params: Promise<{ requestId: string }>;
@@ -24,7 +27,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
   try {
     const { requestId } = await context.params;
     const body = await req.json();
-    const { userId, stripePaymentIntentId } = body;
+    const { userId, stripePaymentIntentId, useCredits, authToken } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'userId is required' }, { status: 400 });
@@ -96,37 +99,70 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
 
-    // For paid boosts, verify the Stripe payment intent is succeeded
+    // For paid boosts, handle payment verification
     if (boostPrice > 0) {
-      if (!stripePaymentIntentId) {
-        return NextResponse.json(
-          { error: 'stripePaymentIntentId is required for paid boosts' },
-          { status: 400 },
-        );
-      }
+      if (useCredits) {
+        // Credit-based boost
+        if (!authToken) {
+          return NextResponse.json(
+            { error: 'authToken is required for credit boosts' },
+            { status: 400 },
+          );
+        }
 
-      // Verify payment intent with Stripe
-      const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+        const user = await findUserByAuthToken(authToken);
+        if (!user || user.id !== userId) {
+          return NextResponse.json({ error: 'Invalid or expired session' }, { status: 401 });
+        }
 
-      if (paymentIntent.status !== 'succeeded') {
-        return NextResponse.json(
-          { error: 'Payment has not been completed' },
-          { status: 402 },
-        );
-      }
+        try {
+          await deductCreditsForBoost(
+            userId,
+            boostPrice,
+            requestId,
+            `Boost for "${request.song.title}" by ${request.song.artist}`,
+          );
+        } catch (err: unknown) {
+          if (err instanceof Error && err.message === 'Insufficient credit balance') {
+            return NextResponse.json(
+              { error: 'Insufficient credit balance. Please purchase more credits.' },
+              { status: 402 },
+            );
+          }
+          throw err;
+        }
+      } else {
+        // Stripe payment-based boost
+        if (!stripePaymentIntentId) {
+          return NextResponse.json(
+            { error: 'stripePaymentIntentId or useCredits is required for paid boosts' },
+            { status: 400 },
+          );
+        }
 
-      // Verify the payment intent is for this request
-      if (paymentIntent.metadata?.requestId !== requestId) {
-        return NextResponse.json(
-          { error: 'Payment intent does not match this request' },
-          { status: 400 },
-        );
-      }
+        // Verify payment intent with Stripe
+        const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
 
-      // Update the payment record to COMPLETED
-      const payment = await findPaymentByStripeId(stripePaymentIntentId);
-      if (payment && payment.status !== 'COMPLETED') {
-        await updatePaymentStatus(payment.id, 'COMPLETED', new Date());
+        if (paymentIntent.status !== 'succeeded') {
+          return NextResponse.json(
+            { error: 'Payment has not been completed' },
+            { status: 402 },
+          );
+        }
+
+        // Verify the payment intent is for this request
+        if (paymentIntent.metadata?.requestId !== requestId) {
+          return NextResponse.json(
+            { error: 'Payment intent does not match this request' },
+            { status: 400 },
+          );
+        }
+
+        // Update the payment record to COMPLETED
+        const payment = await findPaymentByStripeId(stripePaymentIntentId);
+        if (payment && payment.status !== 'COMPLETED') {
+          await updatePaymentStatus(payment.id, 'COMPLETED', new Date());
+        }
       }
     }
 
