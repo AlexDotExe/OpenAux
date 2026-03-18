@@ -1,11 +1,12 @@
 /**
- * Admin endpoint to mark a request as DELETED (soft delete)
- * Preserves data for analytics and audit trail
+ * Admin endpoint to skip the current track and advance the queue.
+ * Logs a SKIP_SONG admin action when crowd control mode is active.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { findVenueById } from '@/lib/db/venues';
-import { findRequestById, updateRequestStatus } from '@/lib/db/requests';
+import { findRequestById } from '@/lib/db/requests';
+import { advanceToNextSong } from '@/lib/services/sessionService';
 import { prisma } from '@/lib/db/prisma';
 
 export async function POST(
@@ -28,29 +29,21 @@ export async function POST(
     return NextResponse.json({ error: 'Request not found' }, { status: 404 });
   }
 
-  // Only allow deleting PENDING or APPROVED requests
-  if (request.status !== 'PENDING' && request.status !== 'APPROVED') {
-    return NextResponse.json(
-      { error: `Cannot delete request with status ${request.status}` },
-      { status: 400 },
-    );
-  }
-
-  // Mark as DELETED
-  await updateRequestStatus(requestId, 'DELETED');
-
   // Log admin action when crowd control mode is active
   if (venue.crowdControlEnabled) {
     await prisma.adminAction.create({
       data: {
         venueId,
         sessionId: request.sessionId,
-        actionType: 'DELETE_REQUEST',
+        actionType: 'SKIP_SONG',
         targetRequestId: requestId,
         metadata: { title: request.song.title, artist: request.song.artist },
       },
     });
   }
 
-  return NextResponse.json({ ok: true, deletedRequestId: requestId });
+  // Advance queue, marking current request as skipped
+  const result = await advanceToNextSong(request.sessionId, requestId, true);
+
+  return NextResponse.json(result);
 }
