@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findSessionById } from '@/lib/db/sessions';
 import { getStreamingServiceForVenue } from '@/lib/services/streaming';
+import { getSponsorSongsForVenue } from '@/lib/db/venues';
 import { prisma } from '@/lib/db/prisma';
 
 export async function GET(
@@ -28,11 +29,11 @@ export async function GET(
   // Get streaming service for the venue
   const service = await getStreamingServiceForVenue(session.venueId);
   if (!service) {
-    return NextResponse.json({ playback: null, requesterName: null });
+    return NextResponse.json({ playback: null, requesterName: null, sponsorInfo: null });
   }
 
   try {
-    const [playback, approvedRequest] = await Promise.all([
+    const [playback, approvedRequest, sponsorSongs] = await Promise.all([
       service.getPlaybackState(),
       // Find the currently playing (APPROVED) request to get the requester's name.
       // The session flow ensures at most one APPROVED request at a time: advanceToNextSong
@@ -42,13 +43,29 @@ export async function GET(
         include: { user: { select: { displayName: true } } },
         orderBy: { createdAt: 'desc' },
       }),
+      getSponsorSongsForVenue(session.venueId),
     ]);
 
     const requesterName = approvedRequest?.user?.displayName ?? null;
 
-    return NextResponse.json({ playback, requesterName });
+    // Check if the currently playing song is a sponsor/anthem song
+    const sponsorSongMap = new Map(sponsorSongs.map((ss) => [ss.songId, ss]));
+    const currentSponsorInfo = approvedRequest
+      ? (sponsorSongMap.get(approvedRequest.songId) ?? null)
+      : null;
+
+    return NextResponse.json({
+      playback,
+      requesterName,
+      sponsorInfo: currentSponsorInfo
+        ? {
+            promotionText: currentSponsorInfo.promotionText,
+            isAnthem: currentSponsorInfo.isAnthem,
+          }
+        : null,
+    });
   } catch (error) {
     console.error('[GET /api/sessions/[sessionId]/playback] Error:', error);
-    return NextResponse.json({ playback: null, requesterName: null });
+    return NextResponse.json({ playback: null, requesterName: null, sponsorInfo: null });
   }
 }

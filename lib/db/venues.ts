@@ -1,6 +1,23 @@
 import { prisma } from './prisma';
 import { Venue } from '@prisma/client';
 
+export interface SponsorSongInfo {
+  id: string;
+  songId: string;
+  promotionText: string | null;
+  isAnthem: boolean;
+  promotionDurationMinutes: number;
+  isActive: boolean;
+  song: {
+    id: string;
+    title: string;
+    artist: string;
+    albumArtUrl: string | null;
+    spotifyId: string | null;
+    youtubeId: string | null;
+  };
+}
+
 /**
  * DB Access Layer - Venues
  */
@@ -95,6 +112,7 @@ export async function updateVenueSettings(
     monetizationEnabled?: boolean;
     smartMonetizationEnabled?: boolean;
     suggestionModeEnabled?: boolean;
+    crowdControlEnabled?: boolean;
     activePlaylistId?: string | null;
     playlistPriority?: boolean;
   },
@@ -102,5 +120,59 @@ export async function updateVenueSettings(
   return prisma.venue.update({
     where: { id: venueId },
     data: settings,
+  });
+}
+
+export async function getSponsorSongsForVenue(venueId: string): Promise<SponsorSongInfo[]> {
+  return prisma.sponsorSong.findMany({
+    where: { venueId, isActive: true },
+    include: {
+      song: {
+        select: {
+          id: true,
+          title: true,
+          artist: true,
+          albumArtUrl: true,
+          spotifyId: true,
+          youtubeId: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+export async function upsertSponsorSong(
+  venueId: string,
+  songId: string,
+  data: {
+    promotionText?: string | null;
+    promotionDurationMinutes?: number;
+    isAnthem?: boolean;
+    isActive?: boolean;
+  },
+): Promise<SponsorSongInfo> {
+  return prisma.sponsorSong.upsert({
+    where: { venueId_songId: { venueId, songId } },
+    update: data,
+    create: { venueId, songId, ...data },
+    include: {
+      song: {
+        select: {
+          id: true,
+          title: true,
+          artist: true,
+          albumArtUrl: true,
+          spotifyId: true,
+          youtubeId: true,
+        },
+      },
+    },
+  });
+}
+
+export async function deleteSponsorSong(venueId: string, songId: string): Promise<void> {
+  await prisma.sponsorSong.delete({
+    where: { venueId_songId: { venueId, songId } },
   });
 }

@@ -131,6 +131,35 @@ async function main() {
   });
 
   console.log(`✅ Request & vote created`);
+
+  // Create a sample sponsor/anthem song for the venue
+  await prisma.sponsorSong.upsert({
+    where: { venueId_songId: { venueId: venue.id, songId: songs[1].id } },
+    update: {},
+    create: {
+      venueId: venue.id,
+      songId: songs[1].id, // "Sicko Mode" — Club Nexus anthem
+      promotionText: '🍹 Free shot with any drink purchase during this song!',
+      promotionDurationMinutes: 5,
+      isAnthem: true,
+      isActive: true,
+    },
+  });
+
+  await prisma.sponsorSong.upsert({
+    where: { venueId_songId: { venueId: venue.id, songId: songs[3].id } },
+    update: {},
+    create: {
+      venueId: venue.id,
+      songId: songs[3].id, // "Levitating" — sponsor song
+      promotionText: '$2 off cocktails while this song plays!',
+      promotionDurationMinutes: 4,
+      isAnthem: false,
+      isActive: true,
+    },
+  });
+
+  console.log(`✅ Sponsor/anthem songs created`);
   console.log('\n🎉 Seed complete!');
   console.log(`\nVenue URL: /venues/seed-venue-1`);
   console.log(`Admin URL: /admin/seed-venue-1 (username: admin, password: admin123)`);

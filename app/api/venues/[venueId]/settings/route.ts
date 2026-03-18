@@ -27,6 +27,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       monetizationEnabled: venue.monetizationEnabled,
       smartMonetizationEnabled: venue.smartMonetizationEnabled,
       suggestionModeEnabled: venue.suggestionModeEnabled,
+      crowdControlEnabled: venue.crowdControlEnabled,
       activePlaylistId: venue.activePlaylistId ?? null,
       playlistPriority: venue.playlistPriority,
     });
@@ -59,6 +60,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       monetizationEnabled?: boolean;
       smartMonetizationEnabled?: boolean;
       suggestionModeEnabled?: boolean;
+      crowdControlEnabled?: boolean;
       activePlaylistId?: string | null;
       playlistPriority?: boolean;
     } = {};
@@ -69,6 +71,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (body.monetizationEnabled !== undefined) settings.monetizationEnabled = body.monetizationEnabled;
     if (body.smartMonetizationEnabled !== undefined) settings.smartMonetizationEnabled = body.smartMonetizationEnabled;
     if (body.suggestionModeEnabled !== undefined) settings.suggestionModeEnabled = body.suggestionModeEnabled;
+    if (body.crowdControlEnabled !== undefined) settings.crowdControlEnabled = body.crowdControlEnabled;
     if (body.activePlaylistId !== undefined) settings.activePlaylistId = body.activePlaylistId ?? null;
     if (body.playlistPriority !== undefined) settings.playlistPriority = body.playlistPriority;
 
@@ -81,6 +84,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       monetizationEnabled: updated.monetizationEnabled,
       smartMonetizationEnabled: updated.smartMonetizationEnabled,
       suggestionModeEnabled: updated.suggestionModeEnabled,
+      crowdControlEnabled: updated.crowdControlEnabled,
       activePlaylistId: updated.activePlaylistId ?? null,
       playlistPriority: updated.playlistPriority,
     });

@@ -10,6 +10,7 @@ import { selectNextSong, ScoredRequest } from './virtualDjEngine';
 import { recalculateReputation } from './userService';
 import { getStreamingServiceForVenue } from './streaming';
 import { invalidateQueueCache } from './queueCache';
+import { findSponsorSongByVenueAndSong, activateSponsorPromotion } from '../db/sponsorSongs';
 import { Session } from '@prisma/client';
 
 export async function startSession(venueId: string): Promise<Session> {
@@ -29,6 +30,12 @@ export interface PlayResult {
   playbackId?: string;
   trackId?: string;
   service?: 'spotify' | 'youtube';
+  sponsorPromotion?: {
+    promotionText: string | null;
+    promotionDurationMinutes: number;
+    promotionExpiresAt: Date;
+    isAnthem: boolean;
+  } | null;
 }
 
 /**
@@ -82,6 +89,21 @@ export async function advanceToNextSong(
   try {
     const session = await findSessionById(sessionId);
     if (session) {
+      // Check if this song is a sponsor/anthem song and activate its promotion
+      const sponsorSong = await findSponsorSongByVenueAndSong(session.venueId, next.songId);
+      if (sponsorSong && sponsorSong.isActive) {
+        const activated = await activateSponsorPromotion(sponsorSong.id, sponsorSong.promotionDurationMinutes);
+        result.sponsorPromotion = {
+          promotionText: activated.promotionText,
+          promotionDurationMinutes: activated.promotionDurationMinutes,
+          promotionExpiresAt: activated.promotionExpiresAt!,
+          isAnthem: activated.isAnthem,
+        };
+        console.log(
+          `[advanceToNextSong] Sponsor promotion activated for "${next.title}" — "${activated.promotionText}" for ${activated.promotionDurationMinutes} min`,
+        );
+      }
+
       const service = await getStreamingServiceForVenue(session.venueId);
       if (service) {
         result.service = service.name;

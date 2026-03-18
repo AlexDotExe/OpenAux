@@ -8,6 +8,7 @@ import { SongRequestForm } from '@/components/SongRequestForm';
 import { SongQueue } from '@/components/SongQueue';
 import { NowPlayingUser } from '@/components/NowPlayingUser';
 import { SessionExpiryWarning } from '@/components/SessionExpiryWarning';
+import { SponsorSongBanner } from '@/components/SponsorSongBanner';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/lib/constants';
 
 interface PendingSuggestion {
@@ -16,6 +17,20 @@ interface PendingSuggestion {
   artist: string;
   userId: string;
   createdAt: string;
+}
+
+interface ActivePromotion {
+  id: string;
+  promotionText: string | null;
+  promotionDurationMinutes: number;
+  promotionActivatedAt: string;
+  promotionExpiresAt: string;
+  isAnthem: boolean;
+  song: {
+    title: string;
+    artist: string;
+    albumArtUrl?: string | null;
+  };
 }
 
 interface SessionData {
@@ -43,7 +58,16 @@ interface SessionData {
     isExpired: boolean;
   } | null;
   suggestionModeEnabled?: boolean;
+  crowdControlEnabled?: boolean;
   pendingSuggestions?: PendingSuggestion[];
+  anthemAnnouncement?: {
+    type: 'upcoming';
+    title: string;
+    artist: string;
+    promotionText: string | null;
+    isAnthem: boolean;
+  } | null;
+  activePromotion?: ActivePromotion | null;
 }
 
 export default function SessionPage() {
@@ -249,6 +273,7 @@ export default function SessionPage() {
 
   const { session } = sessionData;
   const suggestionModeEnabled = sessionData.suggestionModeEnabled ?? false;
+  const crowdControlEnabled = sessionData.crowdControlEnabled ?? true;
   const userPendingSuggestions = (sessionData.pendingSuggestions ?? []).filter(
     s => s.userId === userId
   );
@@ -311,6 +336,16 @@ export default function SessionPage() {
           </div>
         )}
 
+        {/* Crowd Control mode banner */}
+        {crowdControlEnabled && (
+          <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-3">
+            <p className="text-sm text-blue-300 font-semibold">🗳 Crowd Control Mode</p>
+            <p className="text-xs text-blue-400 mt-1">
+              Queue order is determined entirely by your votes and boosts!
+            </p>
+          </div>
+        )}
+
         {/* Approval/Rejection notifications */}
         {approvedNotifications.map((n, i) => (
           <div key={i} className="bg-green-900/30 border border-green-700 rounded-xl p-3 animate-pulse">
@@ -329,6 +364,29 @@ export default function SessionPage() {
 
         {/* Now Playing */}
         <NowPlayingUser sessionId={session.id} onPlaybackUpdate={setNowPlayingRemainingMs} />
+
+        {/* Anthem / Sponsor Song "Coming Up Next" Announcement */}
+        {sessionData.anthemAnnouncement && (
+          <div className="bg-amber-900/40 border-2 border-amber-500 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-2xl">{sessionData.anthemAnnouncement.isAnthem ? '🎺' : '⭐'}</span>
+              <p className="text-amber-300 font-bold">
+                {sessionData.anthemAnnouncement.isAnthem ? 'Venue Anthem Coming Up Next!' : 'Sponsor Song Coming Up Next!'}
+              </p>
+            </div>
+            <p className="text-amber-100 text-sm mt-1 pl-9">
+              {sessionData.anthemAnnouncement.title} — {sessionData.anthemAnnouncement.artist}
+            </p>
+            {sessionData.anthemAnnouncement.promotionText && (
+              <p className="text-amber-400 text-sm mt-2 pl-9">
+                🎁 {sessionData.anthemAnnouncement.promotionText}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Active Sponsor Promotion Banner (time-limited promotion currently running) */}
+        <SponsorSongBanner activePromotion={sessionData.activePromotion ?? null} />
 
         {/* Song Request Form */}
         <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />
