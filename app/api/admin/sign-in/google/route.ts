@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminOAuthState, setAdminOAuthStateCookie } from '@/lib/adminAuth';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
-const SCOPE = 'https://www.googleapis.com/auth/youtube.readonly';
+const SCOPE = 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 
 export async function GET(_req: NextRequest) {
   const clientId = process.env.YOUTUBE_CLIENT_ID;
