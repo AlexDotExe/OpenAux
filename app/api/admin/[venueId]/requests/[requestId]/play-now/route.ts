@@ -78,9 +78,11 @@ export async function POST(
     if (service.name === 'spotify' && song.spotifyId) {
       // Playback is handled by the embedded player on the admin frontend
       trackId = song.spotifyId;
+      // Keep as APPROVED - will be marked PLAYED when embedded player ends via onEnded callback
     } else if (service.name === 'youtube' && song.youtubeId) {
       // YouTube playback is client-side; just return the ID
       trackId = song.youtubeId;
+      // Keep as APPROVED - will be marked PLAYED when video ends via onEnded callback
     } else {
       return NextResponse.json(
         { error: `Song not available on ${service.name}` },
@@ -88,8 +90,8 @@ export async function POST(
       );
     }
 
-    // Mark as PLAYED immediately after playback starts
-    await updateRequestStatus(requestId, 'PLAYED');
+    // Note: Songs are now marked as PLAYED by the onEnded callback from the embedded players,
+    // not immediately here, so they remain visible in the queue while playing
 
     // Log admin override action when crowd control mode is active
     if (venue?.crowdControlEnabled) {
