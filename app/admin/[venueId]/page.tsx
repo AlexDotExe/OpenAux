@@ -620,6 +620,7 @@ export default function AdminPage() {
           connectedAccountName={venueData?.connectedAccountName}
           connectedAccountEmail={venueData?.connectedAccountEmail}
           activeSession={!!venueData?.activeSession}
+          sessionId={venueData?.activeSession?.id ?? null}
           loading={loading}
           onDisconnect={load}
           onSessionStart={() => sessionAction('start')}
