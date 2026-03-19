@@ -545,6 +545,13 @@ export default function AdminPage() {
     }
   };
 
+  const handleLogout = () => {
+    sessionStorage.removeItem(`adminAuthToken_${params.venueId}`);
+    sessionStorage.removeItem(`adminPassword_${params.venueId}`);
+    setAdminToken('');
+    setAuthed(false);
+  };
+
   if (!authed) {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
@@ -591,6 +598,12 @@ export default function AdminPage() {
       <div className="max-w-lg mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">{venueData?.venue.name} — Admin</h1>
+          <button
+            onClick={handleLogout}
+            className="text-xs text-gray-400 hover:text-white transition-colors"
+          >
+            Logout
+          </button>
         </div>
 
         {status && (
