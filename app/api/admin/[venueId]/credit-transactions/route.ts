@@ -7,14 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { findVenueById } from '@/lib/db/venues';
+import { verifyAdminToken } from '@/lib/db/venues';
 import { findCreditTransactionsByVenue } from '@/lib/db/credits';
-
-async function verifyAdmin(adminPassword: string, venueId: string): Promise<boolean> {
-  const venue = await findVenueById(venueId);
-  if (!venue) return false;
-  return adminPassword === (venue as { adminPassword?: string }).adminPassword;
-}
 
 export async function GET(
   req: NextRequest,
@@ -25,7 +19,7 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const adminPassword = searchParams.get('adminPassword') ?? '';
 
-    const isAdmin = await verifyAdmin(adminPassword, venueId);
+    const isAdmin = await verifyAdminToken(venueId, adminPassword);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
