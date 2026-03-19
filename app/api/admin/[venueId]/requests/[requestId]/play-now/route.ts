@@ -25,15 +25,24 @@ export async function POST(
 
   const venue = await findVenueById(venueId);
 
-  // Validate request exists and is PENDING
+  // Validate request exists and is PENDING or APPROVED
   const request = await findRequestById(requestId);
   if (!request) {
     return NextResponse.json({ error: 'Request not found' }, { status: 404 });
   }
 
-  if (request.status !== 'PENDING') {
+  // Only PENDING and APPROVED songs can be played (APPROVED means currently playing or queued)
+  if (request.status !== 'PENDING' && request.status !== 'APPROVED') {
     return NextResponse.json(
-      { error: `Cannot play request with status ${request.status}. Only PENDING requests can be played.` },
+      { error: `Cannot play request with status ${request.status}. Only PENDING or APPROVED requests can be played.` },
+      { status: 400 },
+    );
+  }
+
+  // Prevent "playing" a song that's already the current song
+  if (currentRequestId && requestId === currentRequestId) {
+    return NextResponse.json(
+      { error: 'This song is already playing' },
       { status: 400 },
     );
   }
