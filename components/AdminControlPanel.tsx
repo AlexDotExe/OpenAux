@@ -883,14 +883,17 @@ export function AdminControlPanel({
                       )}
                     </div>
                     <span className="text-gray-500">{item.score.toFixed(1)}</span>
-                    <button
-                      onClick={() => onPlayNow(item.requestId)}
-                      disabled={loading}
-                      className="bg-green-700 hover:bg-green-600 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                      title={crowdControlEnabled ? 'Override: Play now (logged)' : 'Play now'}
-                    >
-                      ▶
-                    </button>
+                    {/* Only show Play Now for songs not currently playing (position > 0) */}
+                    {idx > 0 && (
+                      <button
+                        onClick={() => onPlayNow(item.requestId)}
+                        disabled={loading}
+                        className="bg-green-700 hover:bg-green-600 disabled:opacity-40 px-2 py-1 rounded transition-colors"
+                        title={crowdControlEnabled ? 'Override: Play now (logged)' : 'Play now'}
+                      >
+                        ▶
+                      </button>
+                    )}
                     <button
                       onClick={() => onDelete(item.requestId)}
                       disabled={loading}
