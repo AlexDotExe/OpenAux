@@ -3,17 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
-import { NowPlaying } from './NowPlaying';
 import { PlaylistManager } from './PlaylistManager';
 import { SponsorSongsManager } from './SponsorSongsManager';
 import type { PendingSuggestion } from '@/app/admin/[venueId]/page';
-
-interface SpotifyDevice {
-  id: string;
-  name: string;
-  type: string;
-  is_active: boolean;
-}
 
 interface SponsorSong {
   id: string;
@@ -74,6 +66,8 @@ interface Props {
   activePlaylistId: string | null;
   playlistPriority: boolean;
   onPlaylistSettingsChange: (activePlaylistId: string | null, playlistPriority: boolean) => void;
+  youtubePlaylistId: string | null;
+  onYoutubePlaylistChange: (id: string | null) => void;
   // Active Users
   userCount: number;
   simulatedUsers: number;
@@ -83,10 +77,7 @@ interface Props {
     maxSongsPerUser: number;
     maxSongRepeatsPerHour: number;
   } | null;
-  // Now Playing & Queue
-  youtubeVideoId: string | null;
-  spotifyTrackId: string | null;
-  onTrackEnded: () => void;
+  // Queue
   queue: QueueItem[];
   onPlayNow: (requestId: string) => void;
   onDelete: (requestId: string) => void;
@@ -97,6 +88,8 @@ interface Props {
   onApproveSuggestion: (requestId: string) => void;
   onRejectSuggestion: (requestId: string) => void;
   onBulkAction: (action: 'approve' | 'reject', requestIds: string[]) => void;
+  // YouTube Player (track info only)
+  currentTrackInfo?: { title: string; artist: string; source: 'queue' | 'playlist' } | null;
 }
 
 type AdminTab = 'account' | 'venue' | 'session';
@@ -134,13 +127,12 @@ export function AdminControlPanel({
   activePlaylistId,
   playlistPriority,
   onPlaylistSettingsChange,
+  youtubePlaylistId,
+  onYoutubePlaylistChange,
   userCount,
   simulatedUsers,
   onSimulatedUsersChange,
   smartSettings,
-  youtubeVideoId,
-  spotifyTrackId,
-  onTrackEnded,
   queue,
   onPlayNow,
   onDelete,
@@ -150,10 +142,9 @@ export function AdminControlPanel({
   onApproveSuggestion,
   onRejectSuggestion,
   onBulkAction,
+  currentTrackInfo,
 }: Props) {
   const [activeTab, setActiveTab] = useState<AdminTab>('session');
-  const [devices, setDevices] = useState<SpotifyDevice[]>([]);
-  const [loadingDevices, setLoadingDevices] = useState(false);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
 
   // Sponsor songs state
@@ -224,29 +215,6 @@ export function AdminControlPanel({
     }
   };
 
-  const fetchDevices = useCallback(async () => {
-    setLoadingDevices(true);
-    try {
-      const res = await fetch(`/api/admin/${venueId}/devices`, {
-        headers: { 'x-admin-password': password },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setDevices(data.devices ?? []);
-      }
-    } catch {
-      // Ignore
-    } finally {
-      setLoadingDevices(false);
-    }
-  }, [password, venueId]);
-
-  useEffect(() => {
-    if (streamingService === 'spotify' && isConnected) {
-      fetchDevices();
-    }
-  }, [streamingService, isConnected, fetchDevices]);
-
   useEffect(() => {
     fetchSponsorSongs();
   }, [fetchSponsorSongs]);
@@ -269,15 +237,6 @@ export function AdminControlPanel({
     if (data.url) {
       window.location.assign(data.url);
     }
-  };
-
-  const handleTransfer = async (deviceId: string) => {
-    await fetch(`/api/admin/${venueId}/playback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminPassword: password, action: 'play', trackId: '_transfer', deviceId }),
-    });
-    fetchDevices();
   };
 
   return (
@@ -718,46 +677,6 @@ export function AdminControlPanel({
             )}
           </div>
 
-          {/* Spotify Device Selector Section */}
-          {streamingService === 'spotify' && isConnected && activeSession && (
-            <div className="space-y-3 border-t border-gray-800 pt-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-gray-400">Playback Device</h3>
-                <button
-                  onClick={fetchDevices}
-                  disabled={loadingDevices}
-                  className="text-xs text-green-400 hover:text-green-300 transition-colors"
-                >
-                  {loadingDevices ? 'Loading...' : 'Refresh'}
-                </button>
-              </div>
-
-              {devices.length === 0 ? (
-                <p className="text-gray-500 text-xs">No devices found. Open Spotify on a device.</p>
-              ) : (
-                <div className="space-y-2">
-                  {devices.map((device) => (
-                    <button
-                      key={device.id}
-                      onClick={() => handleTransfer(device.id)}
-                      className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition-colors ${
-                        device.is_active
-                          ? 'bg-green-900/30 border border-green-700 text-green-300'
-                          : 'bg-gray-800 hover:bg-gray-700 text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">{device.type}</span>
-                        <span>{device.name}</span>
-                      </div>
-                      {device.is_active && <span className="text-xs text-green-400">Active</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Pending Suggestions Section */}
           {activeSession && suggestionModeEnabled && (
             <div className="space-y-3 border-t border-gray-800 pt-4">
@@ -835,25 +754,11 @@ export function AdminControlPanel({
               activePlaylistId={activePlaylistId}
               playlistPriority={playlistPriority}
               onSettingsChange={onPlaylistSettingsChange}
+              streamingService={streamingService}
+              youtubePlaylistId={youtubePlaylistId}
+              onYoutubePlaylistChange={onYoutubePlaylistChange}
             />
           </div>
-
-          {/* Now Playing Section */}
-          {activeSession && isConnected && (
-            <div className="border-t border-gray-800 pt-4">
-              <h3 className="text-sm font-medium text-gray-400 mb-3">Now Playing</h3>
-              <div className="-mx-4 -mb-4">
-                <NowPlaying
-                  venueId={venueId}
-                  adminToken={password}
-                  streamingService={streamingService}
-                  onTrackEnded={onTrackEnded}
-                  youtubeVideoId={youtubeVideoId}
-                  spotifyTrackId={spotifyTrackId}
-                />
-              </div>
-            </div>
-          )}
 
           {/* Queue Section */}
           {queue.length > 0 && (

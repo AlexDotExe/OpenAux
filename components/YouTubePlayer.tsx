@@ -2,130 +2,242 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 
-interface YouTubePlayerProps {
-  videoId: string;
-  onEnded?: () => void;
-  onStateChange?: (state: { isPlaying: boolean; progressMs: number; durationMs: number }) => void;
-}
-
 declare global {
   interface Window {
-    YT: {
-      Player: new (
-        elementId: string,
-        config: {
-          height: string;
-          width: string;
-          videoId: string;
-          playerVars: Record<string, number>;
-          events: Record<string, (event: { data: number; target: { getDuration: () => number; getCurrentTime: () => number } }) => void>;
-        },
-      ) => YTPlayer;
-      PlayerState: { ENDED: number; PLAYING: number; PAUSED: number };
-    };
-    onYouTubeIframeAPIReady: () => void;
+    YT: typeof YT;
+    onYouTubeIframeAPIReady: (() => void) | undefined;
   }
 }
 
-interface YTPlayer {
-  playVideo: () => void;
-  pauseVideo: () => void;
-  loadVideoById: (videoId: string) => void;
-  destroy: () => void;
-  getDuration: () => number;
-  getCurrentTime: () => number;
-  getPlayerState: () => number;
+declare namespace YT {
+  class Player {
+    constructor(elementId: string, options: PlayerOptions);
+    loadVideoById(videoId: string): void;
+    loadPlaylist(playlist: string | string[] | { list: string; listType: string }): void;
+    getCurrentTime(): number;
+    getDuration(): number;
+    getPlayerState(): number;
+    destroy(): void;
+  }
+  interface PlayerOptions {
+    height?: string | number;
+    width?: string | number;
+    videoId?: string;
+    playerVars?: Record<string, number | string>;
+    events?: {
+      onReady?: (event: PlayerEvent) => void;
+      onStateChange?: (event: OnStateChangeEvent) => void;
+      onError?: (event: PlayerEvent) => void;
+    };
+  }
+  interface PlayerEvent {
+    target: Player;
+    data?: number;
+  }
+  interface OnStateChangeEvent {
+    target: Player;
+    data: number;
+  }
+  enum PlayerState {
+    UNSTARTED = -1,
+    ENDED = 0,
+    PLAYING = 1,
+    PAUSED = 2,
+    BUFFERING = 3,
+    CUED = 5,
+  }
 }
 
-export function YouTubePlayer({ videoId, onEnded, onStateChange }: YouTubePlayerProps) {
-  const playerRef = useRef<YTPlayer | null>(null);
-  const containerRef = useRef<string>(`yt-player-${Math.random().toString(36).slice(2)}`);
+interface YouTubePlayerProps {
+  videoId: string | null;
+  playlistId?: string | null;
+  onEnded: () => void;
+  onStateChange?: (state: {
+    isPlaying: boolean;
+    progressMs: number;
+    durationMs: number;
+    videoId: string;
+  }) => void;
+}
 
-  const initPlayer = useCallback(() => {
-    if (!window.YT?.Player) return;
+// Module-level promise to prevent double-loading the IFrame API script
+let apiLoadPromise: Promise<void> | null = null;
 
-    playerRef.current = new window.YT.Player(containerRef.current, {
-      height: '240',
-      width: '100%',
-      videoId,
-      playerVars: { autoplay: 1, controls: 1, modestbranding: 1 },
-      events: {
-        onStateChange: (event) => {
-          const stateNames: Record<number, string> = {
-            [-1]: 'UNSTARTED',
-            [0]: 'ENDED',
-            [1]: 'PLAYING',
-            [2]: 'PAUSED',
-            [3]: 'BUFFERING',
-            [5]: 'CUED',
-          };
-          console.log('[YouTubePlayer] State changed to:', stateNames[event.data] ?? event.data);
+function loadYouTubeApi(): Promise<void> {
+  if (apiLoadPromise) return apiLoadPromise;
 
-          if (event.data === window.YT.PlayerState.ENDED) {
-            console.log('[YouTubePlayer] Video ended, calling onEnded');
-            onEnded?.();
-          }
-          if (onStateChange) {
-            const isPlaying = event.data === window.YT.PlayerState.PLAYING;
-            onStateChange({
-              isPlaying,
-              progressMs: (event.target.getCurrentTime?.() ?? 0) * 1000,
-              durationMs: (event.target.getDuration?.() ?? 0) * 1000,
-            });
-          }
-        },
-      },
-    });
-  }, [videoId, onEnded, onStateChange]);
-
-  useEffect(() => {
-    // Load YouTube iFrame API if not already loaded
-    if (window.YT?.Player) {
-      initPlayer();
+  apiLoadPromise = new Promise<void>((resolve) => {
+    if (window.YT && window.YT.Player) {
+      resolve();
       return;
     }
+    window.onYouTubeIframeAPIReady = () => resolve();
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(script);
+  });
 
-    const existingScript = document.querySelector('script[src*="youtube.com/iframe_api"]');
-    if (!existingScript) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      document.head.appendChild(tag);
+  return apiLoadPromise;
+}
+
+export function YouTubePlayer({ videoId, playlistId, onEnded, onStateChange }: YouTubePlayerProps) {
+  const playerRef = useRef<YT.Player | null>(null);
+  const expectedVideoIdRef = useRef<string | null>(null);
+  const playlistModeRef = useRef(false);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const containerIdRef = useRef('yt-player-' + Math.random().toString(36).slice(2, 9));
+  const onEndedRef = useRef(onEnded);
+  const onStateChangeRef = useRef(onStateChange);
+
+  // Keep callback refs up to date
+  onEndedRef.current = onEnded;
+  onStateChangeRef.current = onStateChange;
+
+  const clearProgressInterval = useCallback(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
     }
+  }, []);
 
-    window.onYouTubeIframeAPIReady = initPlayer;
+  const startProgressInterval = useCallback(() => {
+    clearProgressInterval();
+    progressIntervalRef.current = setInterval(() => {
+      const player = playerRef.current;
+      const vid = expectedVideoIdRef.current;
+      if (!player || !vid) return;
+      try {
+        const currentTime = player.getCurrentTime();
+        const duration = player.getDuration();
+        onStateChangeRef.current?.({
+          isPlaying: true,
+          progressMs: Math.round(currentTime * 1000),
+          durationMs: Math.round(duration * 1000),
+          videoId: vid,
+        });
+      } catch {
+        // Player may not be ready
+      }
+    }, 1000);
+  }, [clearProgressInterval]);
+
+  // Initialize player once
+  useEffect(() => {
+    let destroyed = false;
+    const containerId = containerIdRef.current;
+
+    loadYouTubeApi().then(() => {
+      if (destroyed) return;
+
+      playerRef.current = new window.YT.Player(containerId, {
+        height: '100%',
+        width: '100%',
+        playerVars: {
+          autoplay: 1,
+          controls: 1,
+          rel: 0,
+          modestbranding: 1,
+        },
+        events: {
+          onReady: () => {
+            // If a videoId was set before the player was ready, load it
+            if (expectedVideoIdRef.current) {
+              playerRef.current?.loadVideoById(expectedVideoIdRef.current);
+            } else if (playlistModeRef.current) {
+              // No queue video — start the playlist
+              // playlistId is read from the ref set by the effect below
+            }
+          },
+          onStateChange: (event: YT.OnStateChangeEvent) => {
+            const state = event.data;
+
+            if (state === 0 /* ENDED */) {
+              clearProgressInterval();
+              // Only fire onEnded for queue songs (not playlist — YouTube auto-advances those)
+              if (expectedVideoIdRef.current && !playlistModeRef.current) {
+                onEndedRef.current();
+              }
+            } else if (state === 1 /* PLAYING */) {
+              startProgressInterval();
+            } else if (state === 2 /* PAUSED */) {
+              clearProgressInterval();
+              const player = playerRef.current;
+              const vid = expectedVideoIdRef.current;
+              if (player && vid) {
+                try {
+                  onStateChangeRef.current?.({
+                    isPlaying: false,
+                    progressMs: Math.round(player.getCurrentTime() * 1000),
+                    durationMs: Math.round(player.getDuration() * 1000),
+                    videoId: vid,
+                  });
+                } catch {
+                  // ignore
+                }
+              }
+            }
+          },
+          onError: () => {
+            // On error for queue songs, treat as ended so orchestrator can advance
+            if (expectedVideoIdRef.current && !playlistModeRef.current) {
+              onEndedRef.current();
+            }
+          },
+        },
+      });
+    });
 
     return () => {
-      playerRef.current?.destroy();
+      destroyed = true;
+      clearProgressInterval();
+      try {
+        playerRef.current?.destroy();
+      } catch {
+        // ignore
+      }
       playerRef.current = null;
     };
-  }, [initPlayer]);
+  }, [clearProgressInterval, startProgressInterval]);
 
-  // Load new video when videoId changes
+  // Handle videoId changes (queue songs override playlist)
   useEffect(() => {
-    if (playerRef.current && videoId && typeof playerRef.current.loadVideoById === 'function') {
-      console.log('[YouTubePlayer] Loading new video:', videoId);
-      playerRef.current.loadVideoById(videoId);
-      // Explicitly start playback after a short delay, but only if not already playing
-      setTimeout(() => {
-        if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
-          const state = playerRef.current.getPlayerState();
-          // Only auto-play if the player is not already playing (1) or buffering (3)
-          if (state !== window.YT.PlayerState.PLAYING && state !== 3) {
-            console.log('[YouTubePlayer] Auto-starting playback for:', videoId, 'from state:', state);
-            if (typeof playerRef.current.playVideo === 'function') {
-              playerRef.current.playVideo();
-            }
-          } else {
-            console.log('[YouTubePlayer] Skipping auto-play, already playing or buffering:', videoId, 'state:', state);
-          }
+    expectedVideoIdRef.current = videoId;
+    if (videoId) {
+      playlistModeRef.current = false;
+      const player = playerRef.current;
+      if (player) {
+        try {
+          player.loadVideoById(videoId);
+        } catch {
+          // Player may not be initialized yet; onReady will handle it
         }
-      }, 500);
+      }
     }
   }, [videoId]);
 
+  // Handle playlistId changes (fallback when no videoId)
+  useEffect(() => {
+    if (videoId) return; // Queue song is playing, don't load playlist
+    if (!playlistId) {
+      playlistModeRef.current = false;
+      clearProgressInterval();
+      return;
+    }
+    playlistModeRef.current = true;
+    expectedVideoIdRef.current = null;
+    const player = playerRef.current;
+    if (player) {
+      try {
+        player.loadPlaylist({ list: playlistId, listType: 'playlist' });
+      } catch {
+        // Player may not be ready
+      }
+    }
+  }, [playlistId, videoId, clearProgressInterval]);
+
   return (
-    <div className="rounded-xl overflow-hidden bg-black">
-      <div id={containerRef.current} />
+    <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
+      <div id={containerIdRef.current} />
     </div>
   );
 }

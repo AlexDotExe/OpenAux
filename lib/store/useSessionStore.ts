@@ -103,7 +103,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Use custom fingerprint for dev mode, otherwise use stored/generated
     let fp = customFingerprint;
     if (!fp) {
-      fp = localStorage.getItem(STORAGE_KEY_FINGERPRINT);
+      fp = localStorage.getItem(STORAGE_KEY_FINGERPRINT) ?? undefined;
       if (!fp) {
         fp = uuidv4();
         localStorage.setItem(STORAGE_KEY_FINGERPRINT, fp);

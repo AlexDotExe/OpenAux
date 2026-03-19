@@ -144,6 +144,8 @@ model Venue {
   activePlaylistId String?
   // playlistPriority: when true, pre-loaded playlist songs are sorted before crowd requests
   playlistPriority Boolean @default(false)
+  // youtubePlaylistId: YouTube playlist ID for native fallback playback when queue is empty
+  youtubePlaylistId String?
 
   // ── Relations ──
   sponsorSongs     SponsorSong[]

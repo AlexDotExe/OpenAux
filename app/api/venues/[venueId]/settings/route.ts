@@ -30,6 +30,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       crowdControlEnabled: venue.crowdControlEnabled,
       activePlaylistId: venue.activePlaylistId ?? null,
       playlistPriority: venue.playlistPriority,
+      youtubePlaylistId: venue.youtubePlaylistId ?? null,
     });
   } catch (err) {
     console.error('[GET /api/venues/[venueId]/settings]', err);
@@ -63,6 +64,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       crowdControlEnabled?: boolean;
       activePlaylistId?: string | null;
       playlistPriority?: boolean;
+      youtubePlaylistId?: string | null;
     } = {};
 
     if (body.defaultBoostPrice !== undefined) settings.defaultBoostPrice = body.defaultBoostPrice;
@@ -74,6 +76,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     if (body.crowdControlEnabled !== undefined) settings.crowdControlEnabled = body.crowdControlEnabled;
     if (body.activePlaylistId !== undefined) settings.activePlaylistId = body.activePlaylistId ?? null;
     if (body.playlistPriority !== undefined) settings.playlistPriority = body.playlistPriority;
+    if (body.youtubePlaylistId !== undefined) settings.youtubePlaylistId = body.youtubePlaylistId ?? null;
 
     const updated = await updateVenueSettings(venueId, settings);
 
@@ -87,6 +90,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
       crowdControlEnabled: updated.crowdControlEnabled,
       activePlaylistId: updated.activePlaylistId ?? null,
       playlistPriority: updated.playlistPriority,
+      youtubePlaylistId: updated.youtubePlaylistId ?? null,
     });
   } catch (err) {
     console.error('[PUT /api/venues/[venueId]/settings]', err);

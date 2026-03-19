@@ -5,6 +5,8 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AdminControlPanel } from '@/components/AdminControlPanel';
 import { calculateSmartSettings } from '@/lib/services/smartMonetization';
+import { usePlayerOrchestrator } from '@/lib/hooks/usePlayerOrchestrator';
+import { YouTubePlayer } from '@/components/YouTubePlayer';
 
 interface VenueData {
   venue: { id: string; name: string };
@@ -53,8 +55,6 @@ export default function AdminPage() {
   const [userCount, setUserCount] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const [origin] = useState(() => (typeof window === 'undefined' ? '' : window.location.origin));
-  const [currentYoutubeId, setCurrentYoutubeId] = useState<string | null>(null);
-  const [currentSpotifyId, setCurrentSpotifyId] = useState<string | null>(null);
   // Venue settings state
   const [defaultBoostPrice, setDefaultBoostPrice] = useState(5.0);
   const [maxSongRepeatsPerHour, setMaxSongRepeatsPerHour] = useState(3);
@@ -68,6 +68,7 @@ export default function AdminPage() {
   // Playlist settings state
   const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
   const [playlistPriority, setPlaylistPriority] = useState(false);
+  const [youtubePlaylistId, setYoutubePlaylistId] = useState<string | null>(null);
   // Pending suggestions state
   const [pendingSuggestions, setPendingSuggestions] = useState<PendingSuggestion[]>([]);
   const [payments, setPayments] = useState<Array<{
@@ -199,6 +200,7 @@ export default function AdminPage() {
         setCrowdControlEnabled(settings.crowdControlEnabled ?? true);
         setActivePlaylistId(settings.activePlaylistId ?? null);
         setPlaylistPriority(settings.playlistPriority ?? false);
+        setYoutubePlaylistId(settings.youtubePlaylistId ?? null);
       }
     } catch (err) {
       console.error('Failed to load venue settings:', err);
@@ -256,20 +258,6 @@ export default function AdminPage() {
       const sessRes = await fetch(`/api/sessions/${data.activeSession.id}`);
       const sessData = await sessRes.json();
       const newQueue = sessData.queue ?? [];
-
-      // Auto-start playback if a new song appears at position 0
-      const newTopSong = newQueue[0];
-      if (newTopSong && newTopSong.requestId !== queue[0]?.requestId) {
-        console.log('[AdminPage] New song at position 0, auto-starting:', newTopSong.title);
-        if (newTopSong.youtubeId) {
-          console.log('[AdminPage] Auto-setting YouTube video ID:', newTopSong.youtubeId);
-          setCurrentYoutubeId(newTopSong.youtubeId);
-        } else if (newTopSong.spotifyId) {
-          console.log('[AdminPage] Auto-setting Spotify track ID:', newTopSong.spotifyId);
-          setCurrentSpotifyId(newTopSong.spotifyId);
-        }
-      }
-
       setQueue(newQueue);
 
       // Count unique users in the session
@@ -282,7 +270,7 @@ export default function AdminPage() {
       }
     }
     // Note: Settings are NOT reloaded here to prevent overwriting unsaved changes
-  }, [params.venueId, suggestionModeEnabled, loadPendingSuggestions, queue]);
+  }, [params.venueId, suggestionModeEnabled, loadPendingSuggestions]);
 
   useEffect(() => {
     if (authed) {
@@ -344,22 +332,7 @@ export default function AdminPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ currentRequestId: requestId, wasSkipped }),
     });
-    const data = await res.json();
-    console.log('[AdminPage] Advance response:', data);
-    // If YouTube, update the video ID for client-side playback
-    if (data.service === 'youtube' && data.trackId) {
-      console.log('[AdminPage] Setting YouTube video ID to:', data.trackId);
-      setCurrentYoutubeId(data.trackId);
-    } else if (data.service === 'youtube') {
-      console.warn('[AdminPage] YouTube service but no trackId in response');
-    }
-    // If Spotify, update the track ID for the embedded player
-    if (data.service === 'spotify' && data.trackId) {
-      console.log('[AdminPage] Setting Spotify track ID to:', data.trackId);
-      setCurrentSpotifyId(data.trackId);
-    } else if (data.service === 'spotify') {
-      console.warn('[AdminPage] Spotify service but no trackId in response');
-    }
+    await res.json();
     await load();
     setLoading(false);
   }, [venueData?.activeSession, load]);
@@ -372,44 +345,10 @@ export default function AdminPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ adminPassword: adminToken }),
     });
-    const data = await res.json();
-    if (data.service === 'youtube' && data.trackId) {
-      setCurrentYoutubeId(data.trackId);
-    }
-    if (data.service === 'spotify' && data.trackId) {
-      setCurrentSpotifyId(data.trackId);
-    }
+    await res.json();
     await load();
     setLoading(false);
   };
-
-  const handleTrackEnded = useCallback(async () => {
-    // Auto-advance when track finishes
-    console.log('[AdminPage] handleTrackEnded called');
-
-    // Fetch fresh queue data to avoid stale state
-    if (!venueData?.activeSession) {
-      console.warn('[AdminPage] No active session, cannot advance');
-      return;
-    }
-
-    try {
-      const sessRes = await fetch(`/api/sessions/${venueData.activeSession.id}`);
-      const sessData = await sessRes.json();
-      const freshQueue = sessData.queue ?? [];
-
-      const currentPlaying = freshQueue[0];
-      if (currentPlaying) {
-        console.log('[AdminPage] Advancing from (fresh):', currentPlaying.title, 'requestId:', currentPlaying.requestId);
-        await handleAdvance(currentPlaying.requestId, false);
-      } else {
-        console.log('[AdminPage] No current song in queue, advancing to trigger next selection');
-        await handleAdvance(undefined, false);
-      }
-    } catch (error) {
-      console.error('[AdminPage] Error in handleTrackEnded:', error);
-    }
-  }, [venueData?.activeSession, handleAdvance]);
 
   const handleBlacklist = async (songId: string) => {
     setLoading(true);
@@ -448,19 +387,7 @@ export default function AdminPage() {
       body: JSON.stringify({ adminPassword: adminToken, currentRequestId }),
     });
 
-    const data = await res.json();
-    console.log('[AdminPage] Play Now response:', data);
-
-    if (res.ok && data.service === 'youtube') {
-      console.log('[AdminPage] Setting YouTube video ID to:', data.nowPlaying.trackId);
-      setCurrentYoutubeId(data.nowPlaying.trackId); // Update YouTube player
-    } else if (res.ok && data.service === 'spotify') {
-      console.log('[AdminPage] Setting Spotify track ID to:', data.nowPlaying.trackId);
-      setCurrentSpotifyId(data.nowPlaying.trackId); // Update Spotify embedded player
-    } else if (!res.ok) {
-      console.warn('[AdminPage] Play Now failed. Response:', data);
-    }
-
+    await res.json();
     await load();
     setLoading(false);
   };
@@ -499,6 +426,23 @@ export default function AdminPage() {
     await load();
     setLoading(false);
   };
+
+  // YouTube Player Orchestrator
+  const {
+    currentVideoId,
+    currentTrackInfo,
+    activePlaylistId: orchestratorPlaylistId,
+    handleTrackEnded,
+    handlePlaybackState,
+  } = usePlayerOrchestrator({
+    queue,
+    sessionId: venueData?.activeSession?.id ?? null,
+    venueId: params.venueId,
+    adminToken,
+    youtubePlaylistId,
+    streamingService: venueData?.streamingService ?? null,
+    onAdvanceQueue: handleAdvance,
+  });
 
   const handleSaveSettings = async () => {
     setLoading(true);
@@ -557,6 +501,22 @@ export default function AdminPage() {
       });
     } catch (err) {
       console.error('Failed to save playlist settings:', err);
+    }
+  };
+
+  const handleYoutubePlaylistChange = async (id: string | null) => {
+    setYoutubePlaylistId(id);
+    try {
+      await fetch(`/api/venues/${params.venueId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPassword: adminToken,
+          youtubePlaylistId: id,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to save YouTube playlist setting:', err);
     }
   };
 
@@ -661,15 +621,14 @@ export default function AdminPage() {
           activePlaylistId={activePlaylistId}
           playlistPriority={playlistPriority}
           onPlaylistSettingsChange={handlePlaylistSettingsChange}
+          youtubePlaylistId={youtubePlaylistId}
+          onYoutubePlaylistChange={handleYoutubePlaylistChange}
           // Active Users
           userCount={userCount}
           simulatedUsers={simulatedUsers}
           onSimulatedUsersChange={handleSimulatedUsersChange}
           smartSettings={smartMonetizationEnabled ? calculateSmartSettings(userCount + simulatedUsers) : null}
-          // Now Playing & Queue
-          youtubeVideoId={currentYoutubeId}
-          spotifyTrackId={currentSpotifyId}
-          onTrackEnded={handleTrackEnded}
+          // Queue
           queue={queue}
           onPlayNow={handlePlayNow}
           onDelete={handleDelete}
@@ -680,7 +639,45 @@ export default function AdminPage() {
           onApproveSuggestion={handleApproveSuggestion}
           onRejectSuggestion={handleRejectSuggestion}
           onBulkAction={handleBulkAction}
+          // YouTube Player (track info only, player rendered at page level)
+          currentTrackInfo={currentTrackInfo}
         />
+
+        {/* YouTube Player - rendered at page level so it persists across tab switches */}
+        {venueData?.activeSession && venueData?.streamingService === 'youtube' && (
+          <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-400">Now Playing</h3>
+              {currentTrackInfo && (
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  currentTrackInfo.source === 'queue'
+                    ? 'bg-green-900 text-green-300'
+                    : 'bg-purple-900 text-purple-300'
+                }`}>
+                  {currentTrackInfo.source === 'queue' ? 'Queue' : 'Playlist'}
+                </span>
+              )}
+            </div>
+            {currentTrackInfo && (
+              <div className="text-xs">
+                <p className="font-medium truncate">{currentTrackInfo.title}</p>
+                <p className="text-gray-400 truncate">{currentTrackInfo.artist}</p>
+              </div>
+            )}
+            {currentVideoId || orchestratorPlaylistId ? (
+              <YouTubePlayer
+                videoId={currentVideoId}
+                playlistId={orchestratorPlaylistId}
+                onEnded={handleTrackEnded}
+                onStateChange={handlePlaybackState}
+              />
+            ) : (
+              <div className="w-full aspect-video bg-gray-800 rounded-lg flex items-center justify-center">
+                <p className="text-gray-500 text-sm">No track playing — select a fallback playlist</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Payment History */}
         {payments.length > 0 && (

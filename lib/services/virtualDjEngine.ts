@@ -45,6 +45,8 @@ export interface ScoredRequest {
   boostAmount?: number;
   userId?: string;
   isPreloaded?: boolean;
+  spotifyId?: string;
+  youtubeId?: string;
 }
 
 export interface DjEngineConfig {
@@ -133,7 +135,8 @@ export function applyBoostPositions(sorted: ScoredRequest[]): ScoredRequest[] {
     const song = result[i];
     if (song.isBoosted && !processedIds.has(song.requestId)) {
       processedIds.add(song.requestId);
-      const newIdx = Math.max(0, i - BOOST_POSITIONS);
+      // Never move ahead of position 0 (currently playing song)
+      const newIdx = Math.max(1, i - BOOST_POSITIONS);
       if (newIdx !== i) {
         result.splice(i, 1);
         result.splice(newIdx, 0, song);
@@ -258,6 +261,8 @@ export async function selectNextSong(
     boostAmount: req.boostAmount,
     userId: req.userId,
     isPreloaded: req.isPreloaded,
+    spotifyId: req.song.spotifyId ?? undefined,
+    youtubeId: req.song.youtubeId ?? undefined,
   }));
 
   // Sort descending by score
@@ -345,6 +350,8 @@ export async function getRankedQueue(sessionId: string, skipCache = false): Prom
     boostAmount: req.boostAmount,
     userId: req.userId,
     isPreloaded: req.isPreloaded,
+    spotifyId: req.song.spotifyId ?? undefined,
+    youtubeId: req.song.youtubeId ?? undefined,
   }));
 
   scored.sort((a, b) => b.score - a.score);
