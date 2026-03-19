@@ -54,7 +54,7 @@ export interface SessionState {
   nowPlaying: Song | null;
 
   // Actions
-  initDevice: () => string;
+  initDevice: (customFingerprint?: string) => string;
   setUser: (userId: string, influenceWeight: number, reputationScore: number, displayName?: string | null) => void;
   setDisplayName: (displayName: string) => void;
   setSession: (sessionId: string, venueId: string, energyLevel: number) => void;
@@ -97,12 +97,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   queue: [],
   nowPlaying: null,
 
-  initDevice: () => {
+  initDevice: (customFingerprint?: string) => {
     if (typeof window === 'undefined') return '';
-    let fp = localStorage.getItem(STORAGE_KEY_FINGERPRINT);
+
+    // Use custom fingerprint for dev mode, otherwise use stored/generated
+    let fp = customFingerprint;
     if (!fp) {
-      fp = uuidv4();
-      localStorage.setItem(STORAGE_KEY_FINGERPRINT, fp);
+      fp = localStorage.getItem(STORAGE_KEY_FINGERPRINT);
+      if (!fp) {
+        fp = uuidv4();
+        localStorage.setItem(STORAGE_KEY_FINGERPRINT, fp);
+      }
     }
     set({ deviceFingerprint: fp });
     return fp;

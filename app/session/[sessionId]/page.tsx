@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useSessionStore } from '@/lib/store/useSessionStore';
 import { SongRequestForm } from '@/components/SongRequestForm';
@@ -75,6 +75,8 @@ interface SessionData {
 
 export default function SessionPage() {
   const params = useParams<{ sessionId: string }>();
+  const searchParams = useSearchParams();
+  const devFingerprint = searchParams.get('devFingerprint');
   const { initDevice, setUser, setSession, setQueue, deviceFingerprint, queue, influenceWeight, userId, displayName, setDisplayName, isAuthenticated, setAuthUser, loadAuthFromStorage } =
     useSessionStore();
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
@@ -300,7 +302,7 @@ export default function SessionPage() {
       return;
     }
 
-    const fp = initDevice();
+    const fp = initDevice(devFingerprint ?? undefined);
     // Ensure user is registered, then join the session
     fetch('/api/users', {
       method: 'POST',

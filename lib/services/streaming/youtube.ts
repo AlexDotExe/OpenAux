@@ -4,7 +4,7 @@
  * Playback is client-side via iFrame — server-side play/pause/skip are no-ops.
  */
 
-import { StreamingService, StreamingTrack, SearchResult, PlaybackState, OAuthTokens } from './types';
+import { StreamingService, StreamingTrack, SearchResult, PlaybackState, OAuthTokens, PlaylistInfo, PlaylistTracksResult } from './types';
 import { withValidToken } from './tokenManager';
 
 const YOUTUBE_API = 'https://www.googleapis.com/youtube/v3';
@@ -119,5 +119,82 @@ export class YouTubeService implements StreamingService {
 
   async getPlaybackState(): Promise<PlaybackState | null> {
     return cachedPlaybackStates.get(this.venueId) ?? null;
+  }
+
+  async getUserPlaylists(limit = 50, offset = 0): Promise<{ playlists: PlaylistInfo[]; total: number }> {
+    return withValidToken(this.venueId, refreshYouTubeToken, async (token) => {
+      const params = new URLSearchParams({
+        part: 'snippet,contentDetails',
+        mine: 'true',
+        maxResults: Math.min(50, limit).toString(),
+      });
+
+      const res = await fetch(`${YOUTUBE_API}/playlists?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`YouTube API ${res.status}: ${text}`);
+      }
+
+      const data = await res.json();
+
+      return {
+        playlists: (data.items ?? []).map((item: any) => ({
+          id: item.id,
+          name: item.snippet.title,
+          description: item.snippet.description ?? null,
+          imageUrl: item.snippet.thumbnails?.high?.url ?? item.snippet.thumbnails?.default?.url ?? null,
+          trackCount: item.contentDetails.itemCount ?? 0,
+        })),
+        total: data.pageInfo?.totalResults ?? data.items.length,
+      };
+    });
+  }
+
+  async getPlaylistTracks(playlistId: string, limit = 50, offset = 0): Promise<PlaylistTracksResult> {
+    return withValidToken(this.venueId, refreshYouTubeToken, async (token) => {
+      const tracks: StreamingTrack[] = [];
+      let pageToken: string | undefined;
+      let totalResults = 0;
+
+      do {
+        const params = new URLSearchParams({
+          part: 'snippet,contentDetails',
+          playlistId,
+          maxResults: Math.min(50, limit - tracks.length).toString(),
+        });
+        if (pageToken) params.set('pageToken', pageToken);
+
+        const res = await fetch(`${YOUTUBE_API}/playlistItems?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`YouTube API ${res.status}: ${text}`);
+        }
+
+        const data = await res.json();
+        totalResults = data.pageInfo?.totalResults ?? 0;
+
+        tracks.push(
+          ...(data.items ?? [])
+            .filter((item: any) => item.snippet.resourceId?.kind === 'youtube#video')
+            .map((item: any) => ({
+              serviceId: item.snippet.resourceId.videoId,
+              service: 'youtube' as const,
+              title: item.snippet.title,
+              artist: item.snippet.videoOwnerChannelTitle ?? item.snippet.channelTitle,
+              albumArtUrl: item.snippet.thumbnails?.high?.url ?? item.snippet.thumbnails?.default?.url,
+            }))
+        );
+
+        pageToken = data.nextPageToken;
+      } while (pageToken && tracks.length < limit);
+
+      return { tracks, total: totalResults };
+    });
   }
 }

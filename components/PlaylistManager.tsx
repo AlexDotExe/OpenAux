@@ -35,13 +35,20 @@ interface SearchResult {
   youtubeId?: string | null;
 }
 
+interface StreamingPlaylist {
+  id: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  trackCount: number;
+}
+
 interface Props {
   venueId: string;
   password: string;
   activePlaylistId: string | null;
   playlistPriority: boolean;
   onSettingsChange: (activePlaylistId: string | null, playlistPriority: boolean) => void;
-  streamingService?: string | null;
 }
 
 export function PlaylistManager({
@@ -50,7 +57,6 @@ export function PlaylistManager({
   activePlaylistId,
   playlistPriority,
   onSettingsChange,
-  streamingService,
 }: Props) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
@@ -62,9 +68,10 @@ export function PlaylistManager({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [streamingPlaylists, setStreamingPlaylists] = useState<StreamingPlaylist[]>([]);
+  const [streamingService, setStreamingService] = useState<string | null>(null);
+  const [showingImport, setShowingImport] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
-  const [importSuccess, setImportSuccess] = useState(false);
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -83,38 +90,6 @@ export function PlaylistManager({
   useEffect(() => {
     loadPlaylists();
   }, [loadPlaylists]);
-
-  const handleImportSpotify = async () => {
-    setImporting(true);
-    setImportStatus(null);
-    setImportSuccess(false);
-    try {
-      const res = await fetch(`/api/admin/${venueId}/playlists/import-spotify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPassword: password }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setImportStatus(data.message);
-        setImportSuccess(true);
-        await loadPlaylists();
-      } else {
-        const data = await res.json();
-        setImportStatus(`Import failed: ${data.error}`);
-        setImportSuccess(false);
-      }
-    } catch {
-      setImportStatus('Import failed');
-      setImportSuccess(false);
-    } finally {
-      setImporting(false);
-      setTimeout(() => {
-        setImportStatus(null);
-        setImportSuccess(false);
-      }, 5000);
-    }
-  };
 
   const loadPlaylist = async (playlistId: string) => {
     try {
@@ -269,6 +244,47 @@ export function PlaylistManager({
     onSettingsChange(activePlaylistId, !playlistPriority);
   };
 
+  const loadStreamingPlaylists = async () => {
+    try {
+      const res = await fetch(`/api/admin/${venueId}/streaming/playlists`, {
+        headers: { 'x-admin-password': password },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStreamingPlaylists(data.playlists ?? []);
+        setStreamingService(data.serviceName ?? null);
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleImportPlaylist = async (streamingPlaylistId: string) => {
+    if (!selectedPlaylist) return;
+    setImporting(true);
+    try {
+      const res = await fetch(
+        `/api/admin/${venueId}/playlists/${selectedPlaylist.id}/import-streaming`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminPassword: password,
+            streamingPlaylistId,
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedPlaylist(data.playlist);
+        setShowingImport(false);
+        // Successfully imported
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const formatDuration = (ms: number | null) => {
     if (!ms) return '';
     const secs = Math.round(ms / 1000);
@@ -280,30 +296,13 @@ export function PlaylistManager({
       {/* Playlist List */}
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-400">{playlists.length} playlist{playlists.length !== 1 ? 's' : ''}</span>
-        <div className="flex gap-2">
-          {streamingService === 'spotify' && (
-            <button
-              onClick={handleImportSpotify}
-              disabled={importing}
-              className="text-xs bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white px-2 py-1 rounded transition-colors"
-            >
-              {importing ? 'Importing…' : '🎵 Import Spotify'}
-            </button>
-          )}
-          <button
-            onClick={() => { setCreating(true); setNewName(''); }}
-            className="text-xs bg-purple-700 hover:bg-purple-600 text-white px-2 py-1 rounded transition-colors"
-          >
-            + New
-          </button>
-        </div>
+        <button
+          onClick={() => { setCreating(true); setNewName(''); }}
+          className="text-xs bg-purple-700 hover:bg-purple-600 text-white px-2 py-1 rounded transition-colors"
+        >
+          + New
+        </button>
       </div>
-
-      {importStatus && (
-        <p className={`text-xs ${importSuccess ? 'text-green-400' : 'text-red-400'}`}>
-          {importStatus}
-        </p>
-      )}
 
       {creating && (
         <div className="flex gap-2">
@@ -446,6 +445,17 @@ export function PlaylistManager({
             )}
           </div>
 
+          {/* Import button */}
+          <button
+            onClick={() => {
+              loadStreamingPlaylists();
+              setShowingImport(true);
+            }}
+            className="w-full text-xs bg-purple-700 hover:bg-purple-600 text-white px-2 py-1.5 rounded transition-colors"
+          >
+            Import Playlist
+          </button>
+
           {/* Song search */}
           <div className="space-y-2">
             <input
@@ -512,6 +522,45 @@ export function PlaylistManager({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showingImport && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowingImport(false)}>
+          <div className="bg-gray-900 rounded-lg p-4 max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-3">
+              Import from {streamingService === 'spotify' ? 'Spotify' : streamingService === 'youtube' ? 'YouTube' : 'Streaming Service'}
+            </h3>
+            {streamingPlaylists.length === 0 ? (
+              <p className="text-xs text-gray-400">Loading playlists...</p>
+            ) : (
+              <div className="space-y-2">
+                {streamingPlaylists.map((pl) => (
+                  <button
+                    key={pl.id}
+                    onClick={() => handleImportPlaylist(pl.id)}
+                    disabled={importing}
+                    className="w-full flex items-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 rounded p-2 text-left transition-colors"
+                  >
+                    {pl.imageUrl && (
+                      <img src={pl.imageUrl} alt="" className="w-10 h-10 rounded object-cover" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{pl.name}</p>
+                      <p className="text-xs text-gray-400">{pl.trackCount} tracks</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setShowingImport(false)}
+              className="mt-3 text-xs text-gray-400 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
     </div>

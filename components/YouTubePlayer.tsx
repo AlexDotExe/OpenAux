@@ -34,6 +34,7 @@ interface YTPlayer {
   destroy: () => void;
   getDuration: () => number;
   getCurrentTime: () => number;
+  getPlayerState: () => number;
 }
 
 export function YouTubePlayer({ videoId, onEnded, onStateChange }: YouTubePlayerProps) {
@@ -101,8 +102,24 @@ export function YouTubePlayer({ videoId, onEnded, onStateChange }: YouTubePlayer
 
   // Load new video when videoId changes
   useEffect(() => {
-    if (playerRef.current && videoId) {
+    if (playerRef.current && videoId && typeof playerRef.current.loadVideoById === 'function') {
+      console.log('[YouTubePlayer] Loading new video:', videoId);
       playerRef.current.loadVideoById(videoId);
+      // Explicitly start playback after a short delay, but only if not already playing
+      setTimeout(() => {
+        if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
+          const state = playerRef.current.getPlayerState();
+          // Only auto-play if the player is not already playing (1) or buffering (3)
+          if (state !== window.YT.PlayerState.PLAYING && state !== 3) {
+            console.log('[YouTubePlayer] Auto-starting playback for:', videoId, 'from state:', state);
+            if (typeof playerRef.current.playVideo === 'function') {
+              playerRef.current.playVideo();
+            }
+          } else {
+            console.log('[YouTubePlayer] Skipping auto-play, already playing or buffering:', videoId, 'state:', state);
+          }
+        }
+      }, 500);
     }
   }, [videoId]);
 

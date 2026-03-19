@@ -32,6 +32,19 @@ export interface OAuthTokens {
   scope?: string;
 }
 
+export interface PlaylistInfo {
+  id: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  trackCount: number;
+}
+
+export interface PlaylistTracksResult {
+  tracks: StreamingTrack[];
+  total: number;
+}
+
 export interface StreamingService {
   readonly name: 'spotify' | 'youtube';
 
@@ -44,4 +57,6 @@ export interface StreamingService {
   getPlaybackState(): Promise<PlaybackState | null>;
   isTokenValid(): boolean;
   refreshAccessToken(): Promise<OAuthTokens>;
+  getUserPlaylists?(limit?: number, offset?: number): Promise<{ playlists: PlaylistInfo[]; total: number }>;
+  getPlaylistTracks?(playlistId: string, limit?: number, offset?: number): Promise<PlaylistTracksResult>;
 }

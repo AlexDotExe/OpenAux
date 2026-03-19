@@ -3,7 +3,7 @@
  * Implements StreamingService using Spotify Web API + Spotify Connect.
  */
 
-import { StreamingService, StreamingTrack, SearchResult, PlaybackState, OAuthTokens } from './types';
+import { StreamingService, StreamingTrack, SearchResult, PlaybackState, OAuthTokens, PlaylistInfo, PlaylistTracksResult } from './types';
 import { withValidToken } from './tokenManager';
 
 const SPOTIFY_API = 'https://api.spotify.com/v1';
@@ -195,6 +195,46 @@ export class SpotifyService implements StreamingService {
         method: 'PUT',
         body: JSON.stringify({ device_ids: [deviceId] }),
       });
+    });
+  }
+
+  async getUserPlaylists(limit = 50, offset = 0): Promise<{ playlists: PlaylistInfo[]; total: number }> {
+    return withValidToken(this.venueId, refreshSpotifyToken, async (token) => {
+      const url = `${SPOTIFY_API}/me/playlists?limit=${limit}&offset=${offset}`;
+      const res = await spotifyFetch(url, token);
+      const data = await res.json();
+
+      return {
+        playlists: (data.items ?? []).map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          description: item.description ?? null,
+          imageUrl: item.images?.[0]?.url ?? null,
+          trackCount: item.tracks.total,
+        })),
+        total: data.total,
+      };
+    });
+  }
+
+  async getPlaylistTracks(playlistId: string, limit = 50, offset = 0): Promise<PlaylistTracksResult> {
+    return withValidToken(this.venueId, refreshSpotifyToken, async (token) => {
+      const url = `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=${limit}&offset=${offset}`;
+      const res = await spotifyFetch(url, token);
+      const data = await res.json();
+
+      const tracks: StreamingTrack[] = (data.items ?? [])
+        .filter((item: any) => item.track && item.track.type === 'track')
+        .map((item: any) => ({
+          serviceId: item.track.id,
+          service: 'spotify' as const,
+          title: item.track.name,
+          artist: (item.track.artists ?? []).map((a: any) => a.name).join(', '),
+          albumArtUrl: item.track.album?.images?.[0]?.url,
+          durationMs: item.track.duration_ms,
+        }));
+
+      return { tracks, total: data.total };
     });
   }
 }
