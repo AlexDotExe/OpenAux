@@ -144,33 +144,8 @@ export async function advanceToNextSong(
         });
 
         if (service.name === 'spotify' && song?.spotifyId) {
-          await service.play(song.spotifyId);
+          // Playback is handled by the embedded player on the admin frontend
           result.trackId = song.spotifyId;
-
-          // Pre-queue the next 2-3 songs for smooth auto-advance
-          if (service.addToQueue) {
-            console.log('[advanceToNextSong] Queuing upcoming songs for auto-advance');
-
-            // Get the ranked queue to find the next songs
-            const { getRankedQueue } = await import('./virtualDjEngine');
-            const queue = await getRankedQueue(sessionId);
-
-            // Queue the next 2 songs (queue[0] is now playing, so start at index 1)
-            for (let i = 1; i < Math.min(3, queue.length); i++) {
-              const upcomingSong = queue[i];
-              const upcomingSongData = await prisma.song.findUnique({
-                where: { id: upcomingSong.songId },
-                select: { spotifyId: true },
-              });
-
-              if (upcomingSongData?.spotifyId) {
-                await service.addToQueue(upcomingSongData.spotifyId).catch((err) => {
-                  console.error(`[advanceToNextSong] Failed to queue song ${i}:`, err);
-                });
-                console.log(`[advanceToNextSong] Queued upcoming song at position ${i}: ${upcomingSong.title}`);
-              }
-            }
-          }
         } else if (service.name === 'youtube' && song?.youtubeId) {
           // YouTube playback is client-side; just return the ID
           result.trackId = song.youtubeId;

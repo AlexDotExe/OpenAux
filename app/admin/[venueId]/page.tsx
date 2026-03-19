@@ -54,6 +54,7 @@ export default function AdminPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [origin] = useState(() => (typeof window === 'undefined' ? '' : window.location.origin));
   const [currentYoutubeId, setCurrentYoutubeId] = useState<string | null>(null);
+  const [currentSpotifyId, setCurrentSpotifyId] = useState<string | null>(null);
   // Venue settings state
   const [defaultBoostPrice, setDefaultBoostPrice] = useState(5.0);
   const [maxSongRepeatsPerHour, setMaxSongRepeatsPerHour] = useState(3);
@@ -279,6 +280,27 @@ export default function AdminPage() {
     }
   }, [authed, load, loadSettings, loadPayments, loadCreditTransactions]);
 
+  // Auto-import Spotify playlists when admin connects Spotify
+  useEffect(() => {
+    const connected = searchParams.get('connected');
+    if (connected === 'spotify' && authed && adminToken) {
+      fetch(`/api/admin/${params.venueId}/playlists/import-spotify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: adminToken }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.imported?.length > 0) {
+            setStatus(`Connected to Spotify! Imported ${data.imported.length} playlist(s).`);
+          }
+        })
+        .catch(() => {
+          // Don't block the connection flow if import fails
+        });
+    }
+  }, [searchParams, authed, adminToken, params.venueId]);
+
   useEffect(() => {
     if (!authed) return;
     const interval = setInterval(load, 5000);
@@ -299,7 +321,7 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const handleAdvance = async (requestId?: string, wasSkipped = false) => {
+  const handleAdvance = useCallback(async (requestId?: string, wasSkipped = false) => {
     if (!venueData?.activeSession) return;
     setLoading(true);
     const res = await fetch(`/api/sessions/${venueData.activeSession.id}/advance`, {
@@ -308,13 +330,24 @@ export default function AdminPage() {
       body: JSON.stringify({ currentRequestId: requestId, wasSkipped }),
     });
     const data = await res.json();
+    console.log('[AdminPage] Advance response:', data);
     // If YouTube, update the video ID for client-side playback
     if (data.service === 'youtube' && data.trackId) {
+      console.log('[AdminPage] Setting YouTube video ID to:', data.trackId);
       setCurrentYoutubeId(data.trackId);
+    } else if (data.service === 'youtube') {
+      console.warn('[AdminPage] YouTube service but no trackId in response');
+    }
+    // If Spotify, update the track ID for the embedded player
+    if (data.service === 'spotify' && data.trackId) {
+      console.log('[AdminPage] Setting Spotify track ID to:', data.trackId);
+      setCurrentSpotifyId(data.trackId);
+    } else if (data.service === 'spotify') {
+      console.warn('[AdminPage] Spotify service but no trackId in response');
     }
     await load();
     setLoading(false);
-  };
+  }, [venueData?.activeSession, load]);
 
   const handleSkip = async (requestId: string) => {
     if (!venueData?.activeSession) return;
@@ -328,11 +361,14 @@ export default function AdminPage() {
     if (data.service === 'youtube' && data.trackId) {
       setCurrentYoutubeId(data.trackId);
     }
+    if (data.service === 'spotify' && data.trackId) {
+      setCurrentSpotifyId(data.trackId);
+    }
     await load();
     setLoading(false);
   };
 
-  const handleTrackEnded = async () => {
+  const handleTrackEnded = useCallback(async () => {
     // Auto-advance when track finishes
     console.log('[AdminPage] handleTrackEnded called');
 
@@ -358,7 +394,7 @@ export default function AdminPage() {
     } catch (error) {
       console.error('[AdminPage] Error in handleTrackEnded:', error);
     }
-  };
+  }, [venueData?.activeSession, handleAdvance]);
 
   const handleBlacklist = async (songId: string) => {
     setLoading(true);
@@ -385,9 +421,11 @@ export default function AdminPage() {
 
   const handlePlayNow = async (requestId: string) => {
     if (!confirm('Play this song immediately? This will skip the current track.')) return;
+    console.log('[AdminPage] handlePlayNow called for requestId:', requestId);
     setLoading(true);
 
     const currentRequestId = queue[0]?.requestId; // First item is currently playing
+    console.log('[AdminPage] Current playing requestId:', currentRequestId);
 
     const res = await fetch(`/api/admin/${params.venueId}/requests/${requestId}/play-now`, {
       method: 'POST',
@@ -396,8 +434,16 @@ export default function AdminPage() {
     });
 
     const data = await res.json();
+    console.log('[AdminPage] Play Now response:', data);
+
     if (res.ok && data.service === 'youtube') {
+      console.log('[AdminPage] Setting YouTube video ID to:', data.nowPlaying.trackId);
       setCurrentYoutubeId(data.nowPlaying.trackId); // Update YouTube player
+    } else if (res.ok && data.service === 'spotify') {
+      console.log('[AdminPage] Setting Spotify track ID to:', data.nowPlaying.trackId);
+      setCurrentSpotifyId(data.nowPlaying.trackId); // Update Spotify embedded player
+    } else if (!res.ok) {
+      console.warn('[AdminPage] Play Now failed. Response:', data);
     }
 
     await load();
@@ -593,6 +639,7 @@ export default function AdminPage() {
           smartSettings={smartMonetizationEnabled ? calculateSmartSettings(userCount + simulatedUsers) : null}
           // Now Playing & Queue
           youtubeVideoId={currentYoutubeId}
+          spotifyTrackId={currentSpotifyId}
           onTrackEnded={handleTrackEnded}
           queue={queue}
           onPlayNow={handlePlayNow}

@@ -7,9 +7,10 @@ const SCOPES = [
   'user-modify-playback-state',
   'user-read-playback-state',
   'user-read-currently-playing',
-  'streaming',              // Required for Web Playback SDK
-  'user-read-email',        // Required for Web Playback SDK
-  'user-read-private',      // Required for Web Playback SDK
+  'streaming',
+  'user-read-email',
+  'user-read-private',
+  'playlist-read-private',       // Required for importing user playlists
 ].join(' ');
 
 export async function GET(
