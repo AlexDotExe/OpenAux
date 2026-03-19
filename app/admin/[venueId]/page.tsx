@@ -255,10 +255,25 @@ export default function AdminPage() {
     if (data.activeSession) {
       const sessRes = await fetch(`/api/sessions/${data.activeSession.id}`);
       const sessData = await sessRes.json();
-      setQueue(sessData.queue ?? []);
+      const newQueue = sessData.queue ?? [];
+
+      // Auto-start playback if a new song appears at position 0
+      const newTopSong = newQueue[0];
+      if (newTopSong && newTopSong.requestId !== queue[0]?.requestId) {
+        console.log('[AdminPage] New song at position 0, auto-starting:', newTopSong.title);
+        if (newTopSong.youtubeId) {
+          console.log('[AdminPage] Auto-setting YouTube video ID:', newTopSong.youtubeId);
+          setCurrentYoutubeId(newTopSong.youtubeId);
+        } else if (newTopSong.spotifyId) {
+          console.log('[AdminPage] Auto-setting Spotify track ID:', newTopSong.spotifyId);
+          setCurrentSpotifyId(newTopSong.spotifyId);
+        }
+      }
+
+      setQueue(newQueue);
 
       // Count unique users in the session
-      const uniqueUsers = new Set(sessData.queue?.map((item: QueueItem) => item.userId).filter(Boolean));
+      const uniqueUsers = new Set(newQueue?.map((item: QueueItem) => item.userId).filter(Boolean));
       setUserCount(uniqueUsers.size);
 
       // Load pending suggestions if suggestion mode is enabled
@@ -267,7 +282,7 @@ export default function AdminPage() {
       }
     }
     // Note: Settings are NOT reloaded here to prevent overwriting unsaved changes
-  }, [params.venueId, suggestionModeEnabled, loadPendingSuggestions]);
+  }, [params.venueId, suggestionModeEnabled, loadPendingSuggestions, queue]);
 
   useEffect(() => {
     if (authed) {
