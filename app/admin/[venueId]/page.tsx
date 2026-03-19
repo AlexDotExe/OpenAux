@@ -625,7 +625,7 @@ export default function AdminPage() {
           smartSettings={smartMonetizationEnabled ? calculateSmartSettings(userCount + simulatedUsers) : null}
           // Now Playing & Queue
           youtubeVideoId={currentYoutubeId}
-          spotifyTrackId={currentSpotifyId ?? queue[0]?.spotifyId ?? null}
+          spotifyTrackId={currentSpotifyId}
           onTrackEnded={handleTrackEnded}
           queue={queue}
           onPlayNow={handlePlayNow}

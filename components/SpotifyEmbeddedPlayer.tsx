@@ -99,8 +99,7 @@ export function SpotifyEmbeddedPlayer({ trackId, onTrackEnded }: Props) {
 
     // Check if the API is already loaded (script may already be on page)
     if (typeof window.onSpotifyIframeApiReady === 'function') {
-      // API script already loaded but callback may have fired – re-trigger isn't
-      // possible, so we inject a fresh script to be safe.
+      // API script already loaded - will be handled by the callback below
     }
 
     // Load the Spotify IFrame API script

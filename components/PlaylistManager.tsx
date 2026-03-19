@@ -64,6 +64,7 @@ export function PlaylistManager({
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState(false);
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -86,6 +87,7 @@ export function PlaylistManager({
   const handleImportSpotify = async () => {
     setImporting(true);
     setImportStatus(null);
+    setImportSuccess(false);
     try {
       const res = await fetch(`/api/admin/${venueId}/playlists/import-spotify`, {
         method: 'POST',
@@ -95,16 +97,22 @@ export function PlaylistManager({
       if (res.ok) {
         const data = await res.json();
         setImportStatus(data.message);
+        setImportSuccess(true);
         await loadPlaylists();
       } else {
         const data = await res.json();
         setImportStatus(`Import failed: ${data.error}`);
+        setImportSuccess(false);
       }
     } catch {
       setImportStatus('Import failed');
+      setImportSuccess(false);
     } finally {
       setImporting(false);
-      setTimeout(() => setImportStatus(null), 5000);
+      setTimeout(() => {
+        setImportStatus(null);
+        setImportSuccess(false);
+      }, 5000);
     }
   };
 
@@ -292,7 +300,7 @@ export function PlaylistManager({
       </div>
 
       {importStatus && (
-        <p className={`text-xs ${importStatus.includes('failed') ? 'text-red-400' : 'text-green-400'}`}>
+        <p className={`text-xs ${importSuccess ? 'text-green-400' : 'text-red-400'}`}>
           {importStatus}
         </p>
       )}
