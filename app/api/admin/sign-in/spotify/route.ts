@@ -9,6 +9,7 @@ const SCOPES = [
   'streaming',
   'user-read-email',
   'user-read-private',
+  'playlist-read-private',       // Required for importing user playlists
 ].join(' ');
 
 export async function GET(_req: NextRequest) {

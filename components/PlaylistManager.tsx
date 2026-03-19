@@ -41,6 +41,7 @@ interface Props {
   activePlaylistId: string | null;
   playlistPriority: boolean;
   onSettingsChange: (activePlaylistId: string | null, playlistPriority: boolean) => void;
+  streamingService?: string | null;
 }
 
 export function PlaylistManager({
@@ -49,6 +50,7 @@ export function PlaylistManager({
   activePlaylistId,
   playlistPriority,
   onSettingsChange,
+  streamingService,
 }: Props) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
@@ -60,6 +62,8 @@ export function PlaylistManager({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -78,6 +82,31 @@ export function PlaylistManager({
   useEffect(() => {
     loadPlaylists();
   }, [loadPlaylists]);
+
+  const handleImportSpotify = async () => {
+    setImporting(true);
+    setImportStatus(null);
+    try {
+      const res = await fetch(`/api/admin/${venueId}/playlists/import-spotify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: password }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setImportStatus(data.message);
+        await loadPlaylists();
+      } else {
+        const data = await res.json();
+        setImportStatus(`Import failed: ${data.error}`);
+      }
+    } catch {
+      setImportStatus('Import failed');
+    } finally {
+      setImporting(false);
+      setTimeout(() => setImportStatus(null), 5000);
+    }
+  };
 
   const loadPlaylist = async (playlistId: string) => {
     try {
@@ -243,13 +272,30 @@ export function PlaylistManager({
       {/* Playlist List */}
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-400">{playlists.length} playlist{playlists.length !== 1 ? 's' : ''}</span>
-        <button
-          onClick={() => { setCreating(true); setNewName(''); }}
-          className="text-xs bg-purple-700 hover:bg-purple-600 text-white px-2 py-1 rounded transition-colors"
-        >
-          + New
-        </button>
+        <div className="flex gap-2">
+          {streamingService === 'spotify' && (
+            <button
+              onClick={handleImportSpotify}
+              disabled={importing}
+              className="text-xs bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white px-2 py-1 rounded transition-colors"
+            >
+              {importing ? 'Importing…' : '🎵 Import Spotify'}
+            </button>
+          )}
+          <button
+            onClick={() => { setCreating(true); setNewName(''); }}
+            className="text-xs bg-purple-700 hover:bg-purple-600 text-white px-2 py-1 rounded transition-colors"
+          >
+            + New
+          </button>
+        </div>
       </div>
+
+      {importStatus && (
+        <p className={`text-xs ${importStatus.includes('failed') ? 'text-red-400' : 'text-green-400'}`}>
+          {importStatus}
+        </p>
+      )}
 
       {creating && (
         <div className="flex gap-2">

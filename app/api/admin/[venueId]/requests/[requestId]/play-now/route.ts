@@ -74,9 +74,9 @@ export async function POST(
   try {
     let trackId: string | null = null;
 
-    // Trigger playback based on service type
+    // Determine track ID based on service type
     if (service.name === 'spotify' && song.spotifyId) {
-      await service.play(song.spotifyId);
+      // Playback is handled by the embedded player on the admin frontend
       trackId = song.spotifyId;
     } else if (service.name === 'youtube' && song.youtubeId) {
       // YouTube playback is client-side; just return the ID

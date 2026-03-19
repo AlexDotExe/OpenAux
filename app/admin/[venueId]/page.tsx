@@ -54,6 +54,7 @@ export default function AdminPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [origin] = useState(() => (typeof window === 'undefined' ? '' : window.location.origin));
   const [currentYoutubeId, setCurrentYoutubeId] = useState<string | null>(null);
+  const [currentSpotifyId, setCurrentSpotifyId] = useState<string | null>(null);
   // Venue settings state
   const [defaultBoostPrice, setDefaultBoostPrice] = useState(5.0);
   const [maxSongRepeatsPerHour, setMaxSongRepeatsPerHour] = useState(3);
@@ -279,6 +280,27 @@ export default function AdminPage() {
     }
   }, [authed, load, loadSettings, loadPayments, loadCreditTransactions]);
 
+  // Auto-import Spotify playlists when admin connects Spotify
+  useEffect(() => {
+    const connected = searchParams.get('connected');
+    if (connected === 'spotify' && authed && adminToken) {
+      fetch(`/api/admin/${params.venueId}/playlists/import-spotify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPassword: adminToken }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.imported?.length > 0) {
+            setStatus(`Connected to Spotify! Imported ${data.imported.length} playlist(s).`);
+          }
+        })
+        .catch(() => {
+          // Don't block the connection flow if import fails
+        });
+    }
+  }, [searchParams, authed, adminToken, params.venueId]);
+
   useEffect(() => {
     if (!authed) return;
     const interval = setInterval(load, 5000);
@@ -312,6 +334,10 @@ export default function AdminPage() {
     if (data.service === 'youtube' && data.trackId) {
       setCurrentYoutubeId(data.trackId);
     }
+    // If Spotify, update the track ID for the embedded player
+    if (data.service === 'spotify' && data.trackId) {
+      setCurrentSpotifyId(data.trackId);
+    }
     await load();
     setLoading(false);
   };
@@ -327,6 +353,9 @@ export default function AdminPage() {
     const data = await res.json();
     if (data.service === 'youtube' && data.trackId) {
       setCurrentYoutubeId(data.trackId);
+    }
+    if (data.service === 'spotify' && data.trackId) {
+      setCurrentSpotifyId(data.trackId);
     }
     await load();
     setLoading(false);
@@ -398,6 +427,9 @@ export default function AdminPage() {
     const data = await res.json();
     if (res.ok && data.service === 'youtube') {
       setCurrentYoutubeId(data.nowPlaying.trackId); // Update YouTube player
+    }
+    if (res.ok && data.service === 'spotify') {
+      setCurrentSpotifyId(data.nowPlaying.trackId); // Update Spotify embedded player
     }
 
     await load();
@@ -593,6 +625,7 @@ export default function AdminPage() {
           smartSettings={smartMonetizationEnabled ? calculateSmartSettings(userCount + simulatedUsers) : null}
           // Now Playing & Queue
           youtubeVideoId={currentYoutubeId}
+          spotifyTrackId={currentSpotifyId ?? queue[0]?.spotifyId ?? null}
           onTrackEnded={handleTrackEnded}
           queue={queue}
           onPlayNow={handlePlayNow}

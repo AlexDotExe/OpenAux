@@ -83,6 +83,7 @@ interface Props {
   } | null;
   // Now Playing & Queue
   youtubeVideoId: string | null;
+  spotifyTrackId: string | null;
   onTrackEnded: () => void;
   queue: QueueItem[];
   onPlayNow: (requestId: string) => void;
@@ -133,6 +134,7 @@ export function AdminControlPanel({
   onSimulatedUsersChange,
   smartSettings,
   youtubeVideoId,
+  spotifyTrackId,
   onTrackEnded,
   queue,
   onPlayNow,
@@ -778,6 +780,7 @@ export function AdminControlPanel({
           activePlaylistId={activePlaylistId}
           playlistPriority={playlistPriority}
           onSettingsChange={onPlaylistSettingsChange}
+          streamingService={streamingService}
         />
       </div>
 
@@ -799,6 +802,7 @@ export function AdminControlPanel({
               streamingService={streamingService}
               onTrackEnded={onTrackEnded}
               youtubeVideoId={youtubeVideoId}
+              spotifyTrackId={spotifyTrackId}
             />
           </div>
         </div>
