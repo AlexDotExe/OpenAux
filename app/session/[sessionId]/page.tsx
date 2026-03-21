@@ -397,7 +397,6 @@ export default function SessionPage() {
 
   const { session } = sessionData;
   const suggestionModeEnabled = sessionData.suggestionModeEnabled ?? false;
-  const crowdControlEnabled = sessionData.crowdControlEnabled ?? true;
   const userPendingSuggestions = (sessionData.pendingSuggestions ?? []).filter(
     s => s.userId === userId
   );
@@ -476,16 +475,6 @@ export default function SessionPage() {
             <p className="text-sm text-purple-300 font-semibold">🎵 Suggestion Mode Active</p>
             <p className="text-xs text-purple-400 mt-1">
               Your requests go to the venue for approval before entering the queue.
-            </p>
-          </div>
-        )}
-
-        {/* Crowd Control mode banner */}
-        {crowdControlEnabled && (
-          <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-3">
-            <p className="text-sm text-blue-300 font-semibold">🗳 Crowd Control Mode</p>
-            <p className="text-xs text-blue-400 mt-1">
-              Queue order is determined entirely by your votes and boosts!
             </p>
           </div>
         )}
