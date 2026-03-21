@@ -381,45 +381,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
       <div className="space-y-3">
         <h2 className="font-semibold">🎵 Song Queue</h2>
         {displayQueue.map((song, idx) => (
-          <div key={song.requestId} className="space-y-2">
-            {/* Queue Position Indicator - Only show for user's songs */}
-            {isUserSong(song) && (
-              <div className={`border rounded-lg p-3 space-y-1 ${
-                idx === 0
-                  ? 'bg-green-900/20 border-green-700'
-                  : 'bg-blue-900/20 border-blue-700'
-              }`}>
-                <p className={`text-sm font-semibold text-center ${idx === 0 ? 'text-green-300' : 'text-blue-300'}`}>
-                  {idx === 0
-                    ? '🎵 Your song is playing now!'
-                    : `📍 Your song: #${idx + 1} in queue${idx === 1 ? ' — Next up!' : ''}`
-                  }
-                </p>
-                {/* Position change indicator */}
-                {(() => {
-                  const change = positionChanges.get(song.requestId);
-                  if (!change) return null;
-                  return (
-                    <p className={`text-xs font-semibold text-center ${change > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {change > 0
-                        ? `▲ Moved up ${change} spot${change !== 1 ? 's' : ''}!`
-                        : `▼ Moved down ${Math.abs(change)} spot${Math.abs(change) !== 1 ? 's' : ''}`
-                      }
-                    </p>
-                  );
-                })()}
-                {idx === 0 ? (
-                  <p className="text-xs text-green-400 text-center">
-                    🎶 Enjoy the music!
-                  </p>
-                ) : (
-                  <p className="text-xs text-blue-400 text-center">
-                    ⏱ Estimated play time: {formatWaitTime(calculateWaitTimeMs(displayQueue, idx, nowPlayingRemainingMs))}
-                  </p>
-                )}
-              </div>
-            )}
-
+          <div key={song.requestId}>
             {/* Song Card */}
             <div
               className={`rounded-xl p-4 space-y-3 ${
@@ -448,7 +410,37 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                       </span>
                     )}
                   </div>
-                  <p className="text-gray-400 text-sm truncate">{song.artist}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-gray-400 text-sm truncate">{song.artist}</p>
+                    {/* Inline position label */}
+                    <span className={`text-[11px] font-medium shrink-0 ${
+                      idx === 0 ? 'text-green-400' : 'text-gray-500'
+                    }`}>
+                      {idx === 0
+                        ? 'Playing Now'
+                        : idx === 1
+                        ? 'Up Next'
+                        : `${idx + 1}${idx + 1 === 2 ? 'nd' : idx + 1 === 3 ? 'rd' : 'th'} in Queue`
+                      }
+                    </span>
+                  </div>
+                  {/* User's song: wait time + position change */}
+                  {isUserSong(song) && idx > 0 && (
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[11px] text-blue-400">
+                        ~{formatWaitTime(calculateWaitTimeMs(displayQueue, idx, nowPlayingRemainingMs))} wait
+                      </span>
+                      {(() => {
+                        const change = positionChanges.get(song.requestId);
+                        if (!change) return null;
+                        return (
+                          <span className={`text-[11px] font-semibold ${change > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {change > 0 ? `▲${change}` : `▼${Math.abs(change)}`}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
