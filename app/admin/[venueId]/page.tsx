@@ -343,12 +343,11 @@ export default function AdminPage() {
   const handleAdvance = useCallback(async (requestId?: string, wasSkipped = false) => {
     if (!venueData?.activeSession) return;
     setLoading(true);
-    const res = await fetch(`/api/sessions/${venueData.activeSession.id}/advance`, {
+    await fetch(`/api/sessions/${venueData.activeSession.id}/advance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ currentRequestId: requestId, wasSkipped }),
     });
-    await res.json();
     await load();
     setLoading(false);
   }, [venueData?.activeSession, load]);
@@ -356,12 +355,11 @@ export default function AdminPage() {
   const handleSkip = async (requestId: string) => {
     if (!venueData?.activeSession) return;
     setLoading(true);
-    const res = await fetch(`/api/admin/${params.venueId}/requests/${requestId}/skip`, {
+    await fetch(`/api/admin/${params.venueId}/requests/${requestId}/skip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ adminPassword: adminToken }),
     });
-    await res.json();
     await load();
     setLoading(false);
   };
@@ -397,13 +395,11 @@ export default function AdminPage() {
     const currentRequestId = queue[0]?.requestId; // First item is currently playing
     console.log('[AdminPage] Current playing requestId:', currentRequestId);
 
-    const res = await fetch(`/api/admin/${params.venueId}/requests/${requestId}/play-now`, {
+    await fetch(`/api/admin/${params.venueId}/requests/${requestId}/play-now`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ adminPassword: adminToken, currentRequestId }),
     });
-
-    await res.json();
     await load();
     setLoading(false);
   };
