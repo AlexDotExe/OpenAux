@@ -504,6 +504,9 @@ export default function SessionPage() {
           }
         />
 
+        {/* Song Request Form */}
+        <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />
+
         {/* Now Playing */}
         <NowPlayingUser sessionId={session.id} onPlaybackUpdate={setNowPlayingRemainingMs} />
 
@@ -529,9 +532,6 @@ export default function SessionPage() {
 
         {/* Active Sponsor Promotion Banner (time-limited promotion currently running) */}
         <SponsorSongBanner activePromotion={sessionData.activePromotion ?? null} />
-
-        {/* Song Request Form */}
-        <SongRequestForm sessionId={session.id} venueId={session.venueId} onRequestSubmitted={loadSession} />
 
         {/* User's pending suggestions (suggestion mode only) */}
         {suggestionModeEnabled && userPendingSuggestions.length > 0 && (
