@@ -93,6 +93,7 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onSkipForward, onS
   const expectedVideoIdRef = useRef<string | null>(null);
   const playlistModeRef = useRef(false);
   const savedPlaylistIndexRef = useRef<number>(0);
+  const pendingVideoIdRef = useRef<string | null>(null);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const containerIdRef = useRef('yt-player-' + Math.random().toString(36).slice(2, 9));
   const onEndedRef = useRef(onEnded);
@@ -163,6 +164,21 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onSkipForward, onS
 
             if (state === 0 /* ENDED */) {
               clearProgressInterval();
+              // Queue song was waiting for the playlist track to finish — switch now
+              if (pendingVideoIdRef.current) {
+                const vid = pendingVideoIdRef.current;
+                pendingVideoIdRef.current = null;
+                expectedVideoIdRef.current = vid;
+                try {
+                  const idx = event.target.getPlaylistIndex();
+                  if (idx !== undefined && idx >= 0) {
+                    savedPlaylistIndexRef.current = idx + 1;
+                  }
+                } catch { /* ignore */ }
+                playlistModeRef.current = false;
+                try { event.target.loadVideoById(vid); } catch { /* ignore */ }
+                return;
+              }
               // Only fire onEnded for queue songs (not playlist — YouTube auto-advances those)
               if (expectedVideoIdRef.current && !playlistModeRef.current) {
                 onEndedRef.current();
@@ -213,8 +229,14 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onSkipForward, onS
 
   // Handle videoId changes (queue songs override playlist)
   useEffect(() => {
-    expectedVideoIdRef.current = videoId;
     if (videoId) {
+      // Playlist track is playing — defer the queue song until it ends
+      if (playlistModeRef.current && playerRef.current) {
+        pendingVideoIdRef.current = videoId;
+        return;
+      }
+      pendingVideoIdRef.current = null;
+      expectedVideoIdRef.current = videoId;
       // Save playlist position before switching to queue
       if (playlistModeRef.current) {
         try {
@@ -235,6 +257,9 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onSkipForward, onS
           // Player may not be initialized yet; onReady will handle it
         }
       }
+    } else {
+      pendingVideoIdRef.current = null;
+      expectedVideoIdRef.current = null;
     }
   }, [videoId]);
 
