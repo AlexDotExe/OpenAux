@@ -77,8 +77,6 @@ export default function AdminPage() {
   const [settingsSaveStatus, setSettingsSaveStatus] = useState<string | null>(null);
   const [simulatedUsers, setSimulatedUsers] = useState(0);
   // Playlist settings state
-  const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
-  const [playlistPriority, setPlaylistPriority] = useState(false);
   const [youtubePlaylistId, setYoutubePlaylistId] = useState<string | null>(null);
   // Pending suggestions state
   const [pendingSuggestions, setPendingSuggestions] = useState<PendingSuggestion[]>([]);
@@ -212,8 +210,6 @@ export default function AdminPage() {
         setSmartMonetizationEnabled(settings.smartMonetizationEnabled ?? false);
         setSuggestionModeEnabled(settings.suggestionModeEnabled ?? false);
         setCrowdControlEnabled(settings.crowdControlEnabled ?? true);
-        setActivePlaylistId(settings.activePlaylistId ?? null);
-        setPlaylistPriority(settings.playlistPriority ?? false);
         setYoutubePlaylistId(settings.youtubePlaylistId ?? null);
       }
     } catch (err) {
@@ -312,27 +308,6 @@ export default function AdminPage() {
       })();
     }
   }, [authed, load, loadSettings, loadPayments, loadCreditTransactions, loadSessionHistory]);
-
-  // Auto-import Spotify playlists when admin connects Spotify
-  useEffect(() => {
-    const connected = searchParams.get('connected');
-    if (connected === 'spotify' && authed && adminToken) {
-      fetch(`/api/admin/${params.venueId}/playlists/import-spotify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPassword: adminToken }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.imported?.length > 0) {
-            setStatus(`Connected to Spotify! Imported ${data.imported.length} playlist(s).`);
-          }
-        })
-        .catch(() => {
-          // Don't block the connection flow if import fails
-        });
-    }
-  }, [searchParams, authed, adminToken, params.venueId]);
 
   useEffect(() => {
     if (!authed) return;
@@ -501,8 +476,6 @@ export default function AdminPage() {
           smartMonetizationEnabled,
           suggestionModeEnabled,
           crowdControlEnabled,
-          activePlaylistId,
-          playlistPriority,
         }),
       });
       const data = await res.json();
@@ -518,31 +491,6 @@ export default function AdminPage() {
       setSettingsSaveStatus('Failed to save settings');
     }
     setLoading(false);
-  };
-
-  /**
-   * Immediately persist playlist settings (active playlist + priority) when changed
-   * from the PlaylistManager UI, without requiring "Save Settings" click.
-   */
-  const handlePlaylistSettingsChange = async (
-    newActivePlaylistId: string | null,
-    newPlaylistPriority: boolean,
-  ) => {
-    setActivePlaylistId(newActivePlaylistId);
-    setPlaylistPriority(newPlaylistPriority);
-    try {
-      await fetch(`/api/venues/${params.venueId}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          adminPassword: adminToken,
-          activePlaylistId: newActivePlaylistId,
-          playlistPriority: newPlaylistPriority,
-        }),
-      });
-    } catch (err) {
-      console.error('Failed to save playlist settings:', err);
-    }
   };
 
   const handleYoutubePlaylistChange = async (id: string | null) => {
@@ -659,9 +607,6 @@ export default function AdminPage() {
           onSaveSettings={handleSaveSettings}
           settingsSaveStatus={settingsSaveStatus}
           // Playlist settings
-          activePlaylistId={activePlaylistId}
-          playlistPriority={playlistPriority}
-          onPlaylistSettingsChange={handlePlaylistSettingsChange}
           youtubePlaylistId={youtubePlaylistId}
           onYoutubePlaylistChange={handleYoutubePlaylistChange}
           // Active Users

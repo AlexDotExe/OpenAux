@@ -50,9 +50,6 @@ interface Props {
   onSaveSettings: () => void;
   settingsSaveStatus: string | null;
   // Playlist settings
-  activePlaylistId: string | null;
-  playlistPriority: boolean;
-  onPlaylistSettingsChange: (activePlaylistId: string | null, playlistPriority: boolean) => void;
   youtubePlaylistId: string | null;
   onYoutubePlaylistChange: (id: string | null) => void;
   // Active Users
@@ -105,9 +102,6 @@ export function AdminControlPanel({
   setCrowdControlEnabled,
   onSaveSettings,
   settingsSaveStatus,
-  activePlaylistId,
-  playlistPriority,
-  onPlaylistSettingsChange,
   youtubePlaylistId,
   onYoutubePlaylistChange,
   userCount,
@@ -727,9 +721,6 @@ export function AdminControlPanel({
             <PlaylistManager
               venueId={venueId}
               password={password}
-              activePlaylistId={activePlaylistId}
-              playlistPriority={playlistPriority}
-              onSettingsChange={onPlaylistSettingsChange}
               streamingService={streamingService}
               youtubePlaylistId={youtubePlaylistId}
               onYoutubePlaylistChange={onYoutubePlaylistChange}
