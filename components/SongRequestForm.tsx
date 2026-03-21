@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSessionStore } from '@/lib/store/useSessionStore';
 import { SongSearchResults } from './SongSearchResults';
+
+const MAX_RETRIES = 3;
 
 interface Props {
   sessionId: string;
@@ -13,6 +15,7 @@ interface Props {
 interface SearchResultItem {
   serviceId?: string;
   service?: 'spotify' | 'youtube';
+  source?: 'itunes';
   id?: string;
   spotifyId?: string | null;
   youtubeId?: string | null;
@@ -101,7 +104,63 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
     };
   }, [query, venueId]);
 
-  const submitRequest = async (data: {
+  /** Fire the API request in the background with automatic retries for server errors. */
+  const submitInBackground = useCallback(async (
+    data: {
+      title: string;
+      artist: string;
+      spotifyId?: string;
+      youtubeId?: string;
+      albumArtUrl?: string;
+      durationMs?: number;
+    },
+    tempId: string,
+    attempt = 0,
+  ) => {
+    const store = useSessionStore.getState();
+    try {
+      const res = await fetch('/api/requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, userId: store.userId, ...data }),
+      });
+
+      const resData = await res.json();
+
+      if (res.ok) {
+        // Server confirmed — remove optimistic tracking, next poll picks up the real entry
+        useSessionStore.getState().removeOptimisticRequest(tempId);
+        onRequestSubmitted();
+        return;
+      }
+
+      // Non-retriable client errors (4xx)
+      if (res.status < 500) {
+        useSessionStore.getState().removeOptimisticRequest(tempId);
+        if (resData.cooldownRemainingSeconds) {
+          setCooldownEndsAt(Date.now() + resData.cooldownRemainingSeconds * 1000);
+        }
+        setError(resData.error ?? 'Failed to submit request');
+        setSuccess(false);
+        return;
+      }
+
+      // Server error — retry
+      throw new Error('Server error');
+    } catch {
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        return submitInBackground(data, tempId, attempt + 1);
+      }
+      // All retries exhausted
+      useSessionStore.getState().removeOptimisticRequest(tempId);
+      setError('Failed to submit request. Please try again.');
+      setSuccess(false);
+    }
+  }, [sessionId, onRequestSubmitted]);
+
+  /** Optimistically add the song to the queue and fire the API in the background. */
+  const submitOptimistic = useCallback((data: {
     title: string;
     artist: string;
     spotifyId?: string;
@@ -110,35 +169,34 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
     durationMs?: number;
   }) => {
     if (!userId) return;
-    setLoading(true);
     setError(null);
 
-    const res = await fetch('/api/requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, userId, ...data }),
+    const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    // Add to queue immediately
+    useSessionStore.getState().addOptimisticRequest({
+      requestId: tempId,
+      songId: '',
+      title: data.title,
+      artist: data.artist,
+      score: 0,
+      voteCount: 0,
+      durationMs: data.durationMs,
+      userId,
     });
 
-    const resData = await res.json();
-    setLoading(false);
+    // Clear form and show success
+    setQuery('');
+    setResults([]);
+    setTitle('');
+    setArtist('');
+    setShowManual(false);
+    setSuccess(true);
+    setTimeout(() => setSuccess(false), 3000);
 
-    if (!res.ok) {
-      setError(resData.error ?? 'Failed to submit request');
-      if (resData.cooldownRemainingSeconds) {
-        setCooldownEndsAt(Date.now() + resData.cooldownRemainingSeconds * 1000);
-      }
-    } else {
-      setSuccess(true);
-      setQuery('');
-      setResults([]);
-      setTitle('');
-      setArtist('');
-      setShowManual(false);
-      // Pass the updated queue to immediately update UI
-      onRequestSubmitted(resData.queue);
-      setTimeout(() => setSuccess(false), 3000);
-    }
-  };
+    // Fire API in background with retries
+    submitInBackground(data, tempId);
+  }, [userId, submitInBackground]);
 
   const handleSelect = (result: SearchResultItem) => {
     const spotifyId = result.serviceId && result.service === 'spotify'
@@ -148,7 +206,7 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
       ? result.serviceId
       : (result.youtubeId ?? undefined);
 
-    submitRequest({
+    submitOptimistic({
       title: result.title,
       artist: result.artist,
       spotifyId,
@@ -161,7 +219,9 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !artist) return;
-    submitRequest({ title, artist });
+    setLoading(true);
+    submitOptimistic({ title, artist });
+    setLoading(false);
   };
 
   const isCoolingDown = cooldownSeconds > 0;
@@ -252,7 +312,6 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
       {success && <p className="text-green-400 text-sm">Request submitted!</p>}
-      {loading && !showManual && <p className="text-gray-400 text-sm animate-pulse">Submitting...</p>}
     </div>
   );
 }

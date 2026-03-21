@@ -114,6 +114,18 @@ export type SuggestionWithDetails = SongRequest & {
   user: { id: string; displayName: string | null };
 };
 
+export async function findAllSessionRequests(sessionId: string): Promise<SongRequestWithDetails[]> {
+  return prisma.songRequest.findMany({
+    where: { sessionId, status: { in: ['PLAYED', 'SKIPPED', 'PENDING', 'APPROVED'] } },
+    include: {
+      song: { select: { id: true, title: true, artist: true, bpm: true, genreTags: true, durationMs: true, spotifyId: true, youtubeId: true } },
+      user: { select: { id: true, influenceWeight: true } },
+      votes: { select: { userId: true, value: true, weight: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+  }) as Promise<SongRequestWithDetails[]>;
+}
+
 export async function findPendingSuggestions(sessionId: string): Promise<SuggestionWithDetails[]> {
   return prisma.songRequest.findMany({
     where: { sessionId, status: 'PENDING' },

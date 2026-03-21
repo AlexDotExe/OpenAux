@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AdminControlPanel } from '@/components/AdminControlPanel';
@@ -32,6 +32,17 @@ interface QueueItem {
   youtubeId?: string;
   userId?: string;
   isPreloaded?: boolean;
+}
+
+interface HistoryItem {
+  requestId: string;
+  songId: string;
+  title: string;
+  artist: string;
+  status: 'PLAYED' | 'SKIPPED' | 'PENDING' | 'APPROVED';
+  spotifyId?: string;
+  youtubeId?: string;
+  createdAt: string;
 }
 
 export interface PendingSuggestion {
@@ -81,6 +92,9 @@ export default function AdminPage() {
     createdAt: string;
     completedAt: string | null;
   }>>([]);
+  const [sessionHistory, setSessionHistory] = useState<HistoryItem[]>([]);
+  const nowPlayingRef = useRef<HTMLDivElement>(null);
+  const queueContainerRef = useRef<HTMLDivElement>(null);
   const [creditTransactions, setCreditTransactions] = useState<Array<{
     id: string;
     amount: number;
@@ -234,6 +248,21 @@ export default function AdminPage() {
     }
   }, [params.venueId]);
 
+  const loadSessionHistory = useCallback(async () => {
+    if (!params.venueId || !adminToken) return;
+    try {
+      const res = await fetch(`/api/admin/${params.venueId}/queue-history`, {
+        headers: { 'x-admin-password': adminToken },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSessionHistory(data.history ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to load session history:', err);
+    }
+  }, [params.venueId, adminToken]);
+
   const loadCreditTransactions = useCallback(async () => {
     if (!params.venueId || !adminToken) return;
     try {
@@ -279,9 +308,10 @@ export default function AdminPage() {
         await loadSettings();
         await loadPayments();
         await loadCreditTransactions();
+        await loadSessionHistory();
       })();
     }
-  }, [authed, load, loadSettings, loadPayments, loadCreditTransactions]);
+  }, [authed, load, loadSettings, loadPayments, loadCreditTransactions, loadSessionHistory]);
 
   // Auto-import Spotify playlists when admin connects Spotify
   useEffect(() => {
@@ -306,9 +336,20 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!authed) return;
-    const interval = setInterval(load, 5000);
+    const tick = () => { load(); loadSessionHistory(); };
+    const interval = setInterval(tick, 5000);
     return () => clearInterval(interval);
-  }, [authed, load]);
+  }, [authed, load, loadSessionHistory]);
+
+  // Auto-scroll to currently playing song when it changes
+  const nowPlayingId = queue[0]?.requestId ?? null;
+  useEffect(() => {
+    if (nowPlayingRef.current && queueContainerRef.current) {
+      const container = queueContainerRef.current;
+      const el = nowPlayingRef.current;
+      container.scrollTop = el.offsetTop - container.offsetTop;
+    }
+  }, [nowPlayingId]);
 
   const sessionAction = async (action: 'start' | 'end') => {
     setLoading(true);
@@ -628,12 +669,6 @@ export default function AdminPage() {
           simulatedUsers={simulatedUsers}
           onSimulatedUsersChange={handleSimulatedUsersChange}
           smartSettings={smartMonetizationEnabled ? calculateSmartSettings(userCount + simulatedUsers) : null}
-          // Queue
-          queue={queue}
-          onPlayNow={handlePlayNow}
-          onDelete={handleDelete}
-          onSkip={handleSkip}
-          onBlacklist={handleBlacklist}
           // Pending Suggestions
           pendingSuggestions={pendingSuggestions}
           onApproveSuggestion={handleApproveSuggestion}
@@ -669,6 +704,7 @@ export default function AdminPage() {
                 videoId={currentVideoId}
                 playlistId={orchestratorPlaylistId}
                 onEnded={handleTrackEnded}
+                onSkipForward={handleTrackEnded}
                 onStateChange={handlePlaybackState}
               />
             ) : (
@@ -678,6 +714,122 @@ export default function AdminPage() {
             )}
           </div>
         )}
+
+        {/* Session Queue History - always visible below player */}
+        {venueData?.activeSession && (() => {
+          // Build merged list: played/skipped from history, then active queue items
+          const playedOrSkipped = sessionHistory.filter(
+            (h) => h.status === 'PLAYED' || h.status === 'SKIPPED'
+          );
+          const nowPlaying = queue[0] ?? null;
+          const upcoming = queue.slice(1);
+
+          return (
+            <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-400">
+                  Queue ({queue.length})
+                </h3>
+                <span className="text-xs text-gray-500">
+                  {playedOrSkipped.length} played
+                </span>
+              </div>
+
+              <div
+                ref={queueContainerRef}
+                className="max-h-[40rem] overflow-y-auto space-y-1"
+              >
+                {/* Played / Skipped songs */}
+                {playedOrSkipped.map((item) => (
+                  <div
+                    key={item.requestId}
+                    className="flex items-center gap-2 text-xs px-2 py-2 rounded-lg bg-gray-800/50"
+                  >
+                    <span className="text-gray-600 text-[10px] uppercase w-14 shrink-0">
+                      {item.status === 'PLAYED' ? 'Played' : 'Skipped'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-gray-500 truncate">{item.title}</p>
+                      <p className="text-gray-600 truncate">{item.artist}</p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Currently Playing */}
+                {nowPlaying && (
+                  <div
+                    ref={nowPlayingRef}
+                    className="flex items-center gap-2 text-xs px-2 py-2 rounded-lg bg-gray-800 border-l-2 border-green-500"
+                  >
+                    <span className="text-green-400 text-[10px] uppercase w-14 shrink-0">
+                      Playing
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium truncate">{nowPlaying.title}</p>
+                      <p className="text-gray-400 truncate">{nowPlaying.artist}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Upcoming songs */}
+                {upcoming.map((item) => (
+                  <div
+                    key={item.requestId}
+                    className="flex items-center gap-2 text-xs px-2 py-2 rounded-lg bg-gray-800"
+                  >
+                    <span className="text-gray-500 text-[10px] uppercase w-14 shrink-0">
+                      Up next
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white truncate">{item.title}</p>
+                      <p className="text-gray-400 truncate">{item.artist}</p>
+                    </div>
+                    <span className="text-gray-600 text-[10px] shrink-0">{item.score.toFixed(1)}</span>
+                    <button
+                      onClick={() => handlePlayNow(item.requestId)}
+                      disabled={loading}
+                      className="bg-green-700 hover:bg-green-600 disabled:opacity-40 px-2 py-1 rounded transition-colors shrink-0"
+                      title="Play now"
+                    >
+                      ▶
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.requestId)}
+                      disabled={loading}
+                      className="bg-gray-700 hover:bg-gray-600 disabled:opacity-40 px-2 py-1 rounded transition-colors shrink-0"
+                      title="Delete"
+                    >
+                      🗑
+                    </button>
+                    <button
+                      onClick={() => handleSkip(item.requestId)}
+                      disabled={loading}
+                      className="bg-gray-700 hover:bg-red-900 disabled:opacity-40 px-2 py-1 rounded transition-colors shrink-0"
+                      title="Skip"
+                    >
+                      ⏭
+                    </button>
+                    <button
+                      onClick={() => handleBlacklist(item.songId)}
+                      disabled={loading}
+                      className="bg-gray-700 hover:bg-red-900 disabled:opacity-40 px-2 py-1 rounded transition-colors shrink-0"
+                      title="Ban"
+                    >
+                      🚫
+                    </button>
+                  </div>
+                ))}
+
+                {/* Empty state */}
+                {playedOrSkipped.length === 0 && queue.length === 0 && (
+                  <p className="text-gray-500 text-xs text-center py-4">
+                    No songs in queue yet
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Payment History */}
         {payments.length > 0 && (

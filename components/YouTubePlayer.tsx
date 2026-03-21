@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 
 declare global {
   interface Window {
@@ -13,7 +13,13 @@ declare namespace YT {
   class Player {
     constructor(elementId: string, options: PlayerOptions);
     loadVideoById(videoId: string): void;
-    loadPlaylist(playlist: string | string[] | { list: string; listType: string }): void;
+    loadPlaylist(playlist: string | string[] | { list: string; listType: string; index?: number; startSeconds?: number }): void;
+    playVideo(): void;
+    pauseVideo(): void;
+    seekTo(seconds: number, allowSeekAhead: boolean): void;
+    nextVideo(): void;
+    previousVideo(): void;
+    getPlaylistIndex(): number;
     getCurrentTime(): number;
     getDuration(): number;
     getPlayerState(): number;
@@ -52,6 +58,8 @@ interface YouTubePlayerProps {
   videoId: string | null;
   playlistId?: string | null;
   onEnded: () => void;
+  onSkipForward?: () => void;
+  onSkipBack?: () => void;
   onStateChange?: (state: {
     isPlaying: boolean;
     progressMs: number;
@@ -80,14 +88,16 @@ function loadYouTubeApi(): Promise<void> {
   return apiLoadPromise;
 }
 
-export function YouTubePlayer({ videoId, playlistId, onEnded, onStateChange }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, playlistId, onEnded, onSkipForward, onSkipBack, onStateChange }: YouTubePlayerProps) {
   const playerRef = useRef<YT.Player | null>(null);
   const expectedVideoIdRef = useRef<string | null>(null);
   const playlistModeRef = useRef(false);
+  const savedPlaylistIndexRef = useRef<number>(0);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const containerIdRef = useRef('yt-player-' + Math.random().toString(36).slice(2, 9));
   const onEndedRef = useRef(onEnded);
   const onStateChangeRef = useRef(onStateChange);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   // Keep callback refs up to date
   onEndedRef.current = onEnded;
@@ -158,8 +168,10 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onStateChange }: Y
                 onEndedRef.current();
               }
             } else if (state === 1 /* PLAYING */) {
+              setIsPlaying(true);
               startProgressInterval();
             } else if (state === 2 /* PAUSED */) {
+              setIsPlaying(false);
               clearProgressInterval();
               const player = playerRef.current;
               const vid = expectedVideoIdRef.current;
@@ -203,6 +215,17 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onStateChange }: Y
   useEffect(() => {
     expectedVideoIdRef.current = videoId;
     if (videoId) {
+      // Save playlist position before switching to queue
+      if (playlistModeRef.current) {
+        try {
+          const idx = playerRef.current?.getPlaylistIndex();
+          if (idx !== undefined && idx >= 0) {
+            savedPlaylistIndexRef.current = idx;
+          }
+        } catch {
+          // ignore
+        }
+      }
       playlistModeRef.current = false;
       const player = playerRef.current;
       if (player) {
@@ -228,16 +251,93 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onStateChange }: Y
     const player = playerRef.current;
     if (player) {
       try {
-        player.loadPlaylist({ list: playlistId, listType: 'playlist' });
+        player.loadPlaylist({ list: playlistId, listType: 'playlist', index: savedPlaylistIndexRef.current });
       } catch {
         // Player may not be ready
       }
     }
   }, [playlistId, videoId, clearProgressInterval]);
 
+  const handleBack = useCallback(() => {
+    if (onSkipBack) {
+      onSkipBack();
+      return;
+    }
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      if (playlistModeRef.current) {
+        player.previousVideo();
+      } else {
+        player.seekTo(0, true);
+      }
+    } catch {
+      // Player may not be ready
+    }
+  }, [onSkipBack]);
+
+  const handlePlayPause = useCallback(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      if (isPlaying) {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
+    } catch {
+      // Player may not be ready
+    }
+  }, [isPlaying]);
+
   return (
-    <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
-      <div id={containerIdRef.current} />
+    <div>
+      {/* Controls */}
+      <div className="flex items-center justify-center gap-6 py-2">
+        <button
+          onClick={handleBack}
+          className="text-gray-400 hover:text-white transition-colors p-2"
+          aria-label="Previous"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+          </svg>
+        </button>
+        <button
+          onClick={handlePlayPause}
+          className="text-white hover:text-gray-200 transition-colors p-2"
+          aria-label={isPlaying ? 'Pause' : 'Play'}
+        >
+          {isPlaying ? (
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+            </svg>
+          ) : (
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          )}
+        </button>
+        <button
+          onClick={() => {
+            if (playlistModeRef.current) {
+              try { playerRef.current?.nextVideo(); } catch { /* ignore */ }
+            } else {
+              onSkipForward?.();
+            }
+          }}
+          className="text-gray-400 hover:text-white transition-colors p-2"
+          aria-label="Next"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+          </svg>
+        </button>
+      </div>
+      {/* Player */}
+      <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
+        <div id={containerIdRef.current} />
+      </div>
     </div>
   );
 }

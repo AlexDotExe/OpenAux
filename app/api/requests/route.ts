@@ -7,6 +7,7 @@ import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 import { invalidateQueueCache } from '@/lib/services/queueCache';
 import { updateUserSessionActivity } from '@/lib/db/userSessions';
 import { findUserSession, updateUserSessionLastRequest } from '@/lib/db/users';
+import { resolveYouTubeId } from '@/lib/services/streaming/youtubeResolver';
 
 const COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes
 
@@ -74,10 +75,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Resolve YouTube video ID if not already provided
+    let resolvedYoutubeId = youtubeId;
+    if (!resolvedYoutubeId && venue?.streamingService === 'youtube') {
+      try {
+        resolvedYoutubeId = await resolveYouTubeId(`${title} ${artist}`);
+      } catch (err) {
+        console.error('[POST /api/requests] YouTube ID resolution failed:', err);
+        // Continue without YouTube ID — song still gets queued
+      }
+    }
+
     // Find or create the song in our catalog
     const song = await findOrCreateSong({
       spotifyId,
-      youtubeId,
+      youtubeId: resolvedYoutubeId,
       title,
       artist,
       albumArtUrl,

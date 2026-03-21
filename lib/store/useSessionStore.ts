@@ -52,6 +52,7 @@ export interface SessionState {
   // Song queue
   queue: Song[];
   nowPlaying: Song | null;
+  _pendingOptimistic: Song[];
 
   // Actions
   initDevice: (customFingerprint?: string) => string;
@@ -62,6 +63,8 @@ export interface SessionState {
   setNowPlaying: (song: Song | null) => void;
   updateUserVote: (requestId: string, vote: 1 | -1) => void;
   setCreditBalance: (creditBalance: number) => void;
+  addOptimisticRequest: (song: Song) => void;
+  removeOptimisticRequest: (tempId: string) => void;
 
   // Auth actions
   setAuthUser: (params: {
@@ -96,6 +99,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   isActive: false,
   queue: [],
   nowPlaying: null,
+  _pendingOptimistic: [],
 
   initDevice: (customFingerprint?: string) => {
     if (typeof window === 'undefined') return '';
@@ -121,7 +125,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setSession: (sessionId, venueId, energyLevel) =>
     set({ sessionId, venueId, energyLevel, isActive: true }),
 
-  setQueue: (queue) => set({ queue }),
+  setQueue: (serverQueue) => {
+    const pending = get()._pendingOptimistic;
+    if (pending.length === 0) {
+      set({ queue: serverQueue });
+      return;
+    }
+    // Check which optimistic entries are now in the server queue (matched by title+artist)
+    const serverKeys = new Set(
+      serverQueue.map((s) => `${s.title.toLowerCase()}::${s.artist.toLowerCase()}`),
+    );
+    const stillPending = pending.filter(
+      (p) => !serverKeys.has(`${p.title.toLowerCase()}::${p.artist.toLowerCase()}`),
+    );
+    set({
+      queue: [...serverQueue, ...stillPending],
+      _pendingOptimistic: stillPending,
+    });
+  },
 
   setNowPlaying: (nowPlaying) => set({ nowPlaying }),
 
@@ -133,6 +154,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })),
 
   setCreditBalance: (creditBalance) => set({ creditBalance }),
+
+  addOptimisticRequest: (song) =>
+    set((state) => ({
+      queue: [...state.queue, song],
+      _pendingOptimistic: [...state._pendingOptimistic, song],
+    })),
+
+  removeOptimisticRequest: (tempId) =>
+    set((state) => ({
+      queue: state.queue.filter((s) => s.requestId !== tempId),
+      _pendingOptimistic: state._pendingOptimistic.filter((s) => s.requestId !== tempId),
+    })),
 
   setAuthUser: ({ userId, authToken, email, authProvider, displayName, reputationScore, influenceWeight, creditBalance, stayLoggedIn }) => {
     if (typeof window !== 'undefined') {

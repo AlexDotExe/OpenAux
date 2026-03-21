@@ -18,19 +18,6 @@ interface SponsorSong {
   };
 }
 
-interface QueueItem {
-  requestId: string;
-  songId: string;
-  title: string;
-  artist: string;
-  score: number;
-  voteCount: number;
-  spotifyId?: string;
-  youtubeId?: string;
-  userId?: string;
-  isPreloaded?: boolean;
-}
-
 interface Props {
   venueId: string;
   password: string;
@@ -77,12 +64,6 @@ interface Props {
     maxSongsPerUser: number;
     maxSongRepeatsPerHour: number;
   } | null;
-  // Queue
-  queue: QueueItem[];
-  onPlayNow: (requestId: string) => void;
-  onDelete: (requestId: string) => void;
-  onSkip: (requestId: string) => void;
-  onBlacklist: (songId: string) => void;
   // Pending Suggestions
   pendingSuggestions: PendingSuggestion[];
   onApproveSuggestion: (requestId: string) => void;
@@ -133,11 +114,6 @@ export function AdminControlPanel({
   simulatedUsers,
   onSimulatedUsersChange,
   smartSettings,
-  queue,
-  onPlayNow,
-  onDelete,
-  onSkip,
-  onBlacklist,
   pendingSuggestions,
   onApproveSuggestion,
   onRejectSuggestion,
@@ -760,74 +736,6 @@ export function AdminControlPanel({
             />
           </div>
 
-          {/* Queue Section */}
-          {queue.length > 0 && (
-            <div className="space-y-3 border-t border-gray-800 pt-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-gray-400">Queue ({queue.length})</h3>
-                {crowdControlEnabled && (
-                  <span className="text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded-full">
-                    🗳 Crowd Controlled
-                  </span>
-                )}
-              </div>
-              {crowdControlEnabled && (
-                <p className="text-xs text-blue-400">
-                  Queue order is crowd-driven. Actions below are override operations and will be logged.
-                </p>
-              )}
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {queue.map((item, idx) => (
-                  <div key={item.requestId} className="flex items-center gap-2 text-xs">
-                    <span className="text-gray-600 w-4">{idx + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{item.title}</p>
-                      <p className="text-gray-400 truncate">{item.artist}</p>
-                      {item.isPreloaded && (
-                        <span className="text-xs text-purple-400">♫ Playlist</span>
-                      )}
-                    </div>
-                    <span className="text-gray-500">{item.score.toFixed(1)}</span>
-                    {/* Only show Play Now for songs not currently playing (position > 0) */}
-                    {idx > 0 && (
-                      <button
-                        onClick={() => onPlayNow(item.requestId)}
-                        disabled={loading}
-                        className="bg-green-700 hover:bg-green-600 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                        title={crowdControlEnabled ? 'Override: Play now (logged)' : 'Play now'}
-                      >
-                        ▶
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onDelete(item.requestId)}
-                      disabled={loading}
-                      className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                      title={crowdControlEnabled ? 'Override: Delete (logged)' : 'Delete'}
-                    >
-                      🗑
-                    </button>
-                    <button
-                      onClick={() => onSkip(item.requestId)}
-                      disabled={loading}
-                      className="bg-gray-800 hover:bg-red-900 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                      title={crowdControlEnabled ? 'Override: Skip (logged)' : 'Skip'}
-                    >
-                      ⏭
-                    </button>
-                    <button
-                      onClick={() => onBlacklist(item.songId)}
-                      disabled={loading}
-                      className="bg-gray-800 hover:bg-red-900 disabled:opacity-40 px-2 py-1 rounded transition-colors"
-                      title="Ban"
-                    >
-                      🚫
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
     </div>

@@ -4,6 +4,7 @@ interface SearchResultItem {
   // Streaming service result
   serviceId?: string;
   service?: 'spotify' | 'youtube';
+  source?: 'itunes';
   // Local DB result
   id?: string;
   spotifyId?: string | null;
