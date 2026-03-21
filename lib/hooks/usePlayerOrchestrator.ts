@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useCallback } from 'react';
+import { useMemo, useRef, useCallback, useEffect } from 'react';
 
 interface QueueItem {
   requestId: string;
@@ -37,16 +37,35 @@ export function usePlayerOrchestrator({
 }: UsePlayerOrchestratorOptions) {
   const isAdvancingRef = useRef(false);
   const lastHeartbeatRef = useRef(0);
+  const lockedRequestIdRef = useRef<string | null>(null);
 
-  // Determine what to play: queue song > YouTube playlist > idle
-  const queueHead = queue[0];
-  const queueVideoId = queueHead?.youtubeId ?? null;
+  // Lock onto the currently playing queue song. Only switch when the locked
+  // song is removed from the queue (advance, skip, play-now) or the queue empties.
+  const currentQueueSong = useMemo(() => {
+    if (queue.length === 0) return null;
+
+    // If we have a locked song and it's still in the queue, keep it
+    if (lockedRequestIdRef.current) {
+      const locked = queue.find((q) => q.requestId === lockedRequestIdRef.current);
+      if (locked) return locked;
+    }
+
+    // No lock yet, or locked song was removed — pick queue[0]
+    return queue[0];
+  }, [queue]);
+
+  // Keep the lock ref in sync (side-effect after render)
+  useEffect(() => {
+    lockedRequestIdRef.current = currentQueueSong?.requestId ?? null;
+  }, [currentQueueSong?.requestId]);
+
+  const queueVideoId = currentQueueSong?.youtubeId ?? null;
 
   const { currentVideoId, currentTrackInfo, activePlaylistId } = useMemo(() => {
-    if (queueVideoId) {
+    if (queueVideoId && currentQueueSong) {
       return {
         currentVideoId: queueVideoId,
-        currentTrackInfo: { title: queueHead.title, artist: queueHead.artist, source: 'queue' as const },
+        currentTrackInfo: { title: currentQueueSong.title, artist: currentQueueSong.artist, source: 'queue' as const },
         activePlaylistId: null,
       };
     }
@@ -59,19 +78,19 @@ export function usePlayerOrchestrator({
       };
     }
     return { currentVideoId: null, currentTrackInfo: null, activePlaylistId: null };
-  }, [queueVideoId, queueHead?.title, queueHead?.artist, youtubePlaylistId, streamingService]);
+  }, [queueVideoId, currentQueueSong, youtubePlaylistId, streamingService]);
 
   // Only called for queue songs (playlist advancement is handled natively by YouTube)
   const handleTrackEnded = useCallback(async () => {
     if (isAdvancingRef.current) return;
-    if (!queueHead) return;
+    if (!currentQueueSong) return;
     isAdvancingRef.current = true;
     try {
-      await onAdvanceQueue(queueHead.requestId);
+      await onAdvanceQueue(currentQueueSong.requestId);
     } finally {
       isAdvancingRef.current = false;
     }
-  }, [queueHead, onAdvanceQueue]);
+  }, [currentQueueSong, onAdvanceQueue]);
 
   const handlePlaybackState = useCallback((state: PlaybackStateUpdate) => {
     if (!sessionId || !venueId || !adminToken) return;
