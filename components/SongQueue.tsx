@@ -350,26 +350,13 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
     );
   }
 
-  const canBoost = (song: Song) => {
-    const result = (
+  const canBoost = (song: Song, idx: number) => {
+    return (
+      idx >= 2 &&
       currentUserId &&
       song.userId === currentUserId &&
       !song.isBoosted
     );
-
-    if (currentUserId && song.userId === currentUserId) {
-      console.log('[SongQueue] Boost check for song:', {
-        songTitle: song.title,
-        monetizationEnabled,
-        currentUserId,
-        songUserId: song.userId,
-        isBoosted: song.isBoosted,
-        canBoost: result,
-        boostPrice
-      });
-    }
-
-    return result;
   };
 
   const isUserSong = (song: Song) => {
@@ -471,7 +458,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
               </div>
 
               {/* Bottom row: Boost button */}
-              {canBoost(song) && (() => {
+              {canBoost(song, idx) && (() => {
                 const currentWaitMs = calculateWaitTimeMs(displayQueue, idx, nowPlayingRemainingMs);
                 const boostedIdx = Math.max(0, idx - 3);
                 const boostedWaitMs = calculateWaitTimeMs(displayQueue, boostedIdx, nowPlayingRemainingMs);
