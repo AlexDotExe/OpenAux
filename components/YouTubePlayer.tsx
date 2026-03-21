@@ -162,23 +162,27 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onSkipForward, onS
           onStateChange: (event: YT.OnStateChangeEvent) => {
             const state = event.data;
 
+            // Check for pending queue video on any non-playing transition
+            // YouTube playlists can auto-advance through ENDED -> UNSTARTED -> CUED
+            // without reliably stopping, so catch all "stopped" states
+            if (pendingVideoIdRef.current && (state === 0 || state === -1 || state === 5)) {
+              clearProgressInterval();
+              const vid = pendingVideoIdRef.current;
+              pendingVideoIdRef.current = null;
+              expectedVideoIdRef.current = vid;
+              try {
+                const idx = event.target.getPlaylistIndex();
+                if (idx !== undefined && idx >= 0) {
+                  savedPlaylistIndexRef.current = idx + 1;
+                }
+              } catch { /* ignore */ }
+              playlistModeRef.current = false;
+              try { event.target.loadVideoById(vid); } catch { /* ignore */ }
+              return;
+            }
+
             if (state === 0 /* ENDED */) {
               clearProgressInterval();
-              // Queue song was waiting for the playlist track to finish — switch now
-              if (pendingVideoIdRef.current) {
-                const vid = pendingVideoIdRef.current;
-                pendingVideoIdRef.current = null;
-                expectedVideoIdRef.current = vid;
-                try {
-                  const idx = event.target.getPlaylistIndex();
-                  if (idx !== undefined && idx >= 0) {
-                    savedPlaylistIndexRef.current = idx + 1;
-                  }
-                } catch { /* ignore */ }
-                playlistModeRef.current = false;
-                try { event.target.loadVideoById(vid); } catch { /* ignore */ }
-                return;
-              }
               // Only fire onEnded for queue songs (not playlist — YouTube auto-advances those)
               if (expectedVideoIdRef.current && !playlistModeRef.current) {
                 onEndedRef.current();
@@ -227,41 +231,53 @@ export function YouTubePlayer({ videoId, playlistId, onEnded, onSkipForward, onS
     };
   }, [clearProgressInterval, startProgressInterval]);
 
+  // Helper: load a queue video immediately, saving playlist position first
+  const loadQueueVideo = useCallback((vid: string) => {
+    pendingVideoIdRef.current = null;
+    expectedVideoIdRef.current = vid;
+    const player = playerRef.current;
+    // Save playlist position before switching to queue
+    if (playlistModeRef.current && player) {
+      try {
+        const idx = player.getPlaylistIndex();
+        if (idx !== undefined && idx >= 0) {
+          savedPlaylistIndexRef.current = idx + 1;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    playlistModeRef.current = false;
+    if (player) {
+      try {
+        player.loadVideoById(vid);
+      } catch {
+        // Player may not be initialized yet; onReady will handle it
+      }
+    }
+  }, []);
+
   // Handle videoId changes (queue songs override playlist)
   useEffect(() => {
     if (videoId) {
-      // Playlist track is playing — defer the queue song until it ends
+      // Only defer if a playlist track is actively playing or buffering
       if (playlistModeRef.current && playerRef.current) {
-        pendingVideoIdRef.current = videoId;
-        return;
-      }
-      pendingVideoIdRef.current = null;
-      expectedVideoIdRef.current = videoId;
-      // Save playlist position before switching to queue
-      if (playlistModeRef.current) {
         try {
-          const idx = playerRef.current?.getPlaylistIndex();
-          if (idx !== undefined && idx >= 0) {
-            savedPlaylistIndexRef.current = idx;
+          const state = playerRef.current.getPlayerState();
+          if (state === 1 /* PLAYING */ || state === 3 /* BUFFERING */) {
+            pendingVideoIdRef.current = videoId;
+            return;
           }
         } catch {
-          // ignore
+          // Player not ready — don't defer, load directly
         }
       }
-      playlistModeRef.current = false;
-      const player = playerRef.current;
-      if (player) {
-        try {
-          player.loadVideoById(videoId);
-        } catch {
-          // Player may not be initialized yet; onReady will handle it
-        }
-      }
+      loadQueueVideo(videoId);
     } else {
       pendingVideoIdRef.current = null;
       expectedVideoIdRef.current = null;
     }
-  }, [videoId]);
+  }, [videoId, loadQueueVideo]);
 
   // Handle playlistId changes (fallback when no videoId)
   useEffect(() => {
