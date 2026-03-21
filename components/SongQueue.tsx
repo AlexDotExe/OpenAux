@@ -479,7 +479,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                             : 'bg-yellow-600 hover:bg-yellow-700 text-black'
                         } disabled:opacity-40`}
                       >
-                        ⚡ {boostPrice === 0 ? `Boost to #${boostedIdx + 1} (Free)` : `Boost to #${boostedIdx + 1} for ${formatPrice(boostPrice)}`}
+                        ⚡ {boostPrice === 0 ? `Boost to #${boostedIdx + 1} (1 Token)` : `Boost to #${boostedIdx + 1} for ${formatPrice(boostPrice)}`}
                       </button>
                       {boostPrice > 0 && <RefundPolicyTooltip />}
                     </div>
@@ -680,7 +680,7 @@ export function SongQueue({ queue, onVote, currentUserId, boostPrice = 5.0, mone
                 !boostStatus ? (
                   <>
                     <p className="text-gray-400">
-                      Boost this song to <span className="text-green-400 font-semibold">#{boostedIdx + 1}</span> in the queue for free?
+                      Boost this song to <span className="text-green-400 font-semibold">#{boostedIdx + 1}</span> in the queue for 1 token?
                     </p>
                     <p className="text-sm text-gray-500">
                       Songs with votes and a boost jump ahead of similarly-scored songs.
