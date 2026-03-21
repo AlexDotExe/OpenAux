@@ -362,6 +362,16 @@ export async function getRankedQueue(sessionId: string, skipCache = false): Prom
   // Apply playlist priority: pre-loaded songs sort above crowd requests when enabled
   const ranked = venue?.playlistPriority ? applyPlaylistPriority(boosted) : boosted;
 
+  // Pin the currently playing song at position 0 so vote changes don't displace it
+  const nowPlayingId = session.nowPlayingRequestId;
+  if (nowPlayingId) {
+    const npIdx = ranked.findIndex((r) => r.requestId === nowPlayingId);
+    if (npIdx > 0) {
+      const [np] = ranked.splice(npIdx, 1);
+      ranked.unshift(np);
+    }
+  }
+
   // Cache the result
   setCachedQueue(sessionId, ranked);
 

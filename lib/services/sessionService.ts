@@ -3,7 +3,7 @@
  * Business logic for venue sessions (live nights).
  */
 
-import { createSession, endSession, findActiveSession, updateEnergyLevel, findSessionById, incrementTotalSongsPlayed } from '../db/sessions';
+import { createSession, endSession, findActiveSession, updateEnergyLevel, findSessionById, incrementTotalSongsPlayed, setSessionNowPlaying } from '../db/sessions';
 import { recordPlayback } from '../db/playback';
 import { updateRequestStatus } from '../db/requests';
 import { selectNextSong, ScoredRequest } from './virtualDjEngine';
@@ -103,12 +103,14 @@ export async function advanceToNextSong(
 
   const next = await selectNextSong(sessionId);
   if (!next) {
+    await setSessionNowPlaying(sessionId, null);
     return { nowPlaying: null };
   }
 
   await updateRequestStatus(next.requestId, 'APPROVED');
 
-  // Invalidate queue cache since we just advanced to next song
+  // Pin the new song as now-playing and invalidate queue cache
+  await setSessionNowPlaying(sessionId, next.requestId);
   invalidateQueueCache(sessionId);
 
   // Trigger streaming playback

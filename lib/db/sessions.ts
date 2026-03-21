@@ -47,6 +47,13 @@ export async function incrementTotalSongsPlayed(sessionId: string): Promise<void
   });
 }
 
+export async function setSessionNowPlaying(sessionId: string, requestId: string | null): Promise<void> {
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: { nowPlayingRequestId: requestId },
+  });
+}
+
 export async function updatePeakActiveUsers(sessionId: string, activeCount: number): Promise<void> {
   // Use updateMany with a conditional filter to atomically update only when the new count exceeds
   // the stored peak, avoiding a separate read-then-write and preventing race conditions.

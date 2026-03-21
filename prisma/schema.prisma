@@ -196,6 +196,7 @@ model Session {
   // Analytics counters (#analytics)
   totalSongsPlayed   Int             @default(0) // Incremented each time a song is recorded in PlaybackHistory
   peakActiveUsers    Int             @default(0) // Highest concurrent active user count during session
+  nowPlayingRequestId String?        // requestId of the song currently playing (pinned at queue position 0)
   requests           SongRequest[]
   playbacks          PlaybackHistory[]
   userSessions       UserSession[]

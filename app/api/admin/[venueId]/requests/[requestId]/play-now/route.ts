@@ -5,7 +5,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findVenueById, verifyAdminToken } from '@/lib/db/venues';
 import { findRequestById, updateRequestStatus } from '@/lib/db/requests';
-import { findSessionById } from '@/lib/db/sessions';
+import { findSessionById, setSessionNowPlaying } from '@/lib/db/sessions';
+import { invalidateQueueCache } from '@/lib/services/queueCache';
 import { advanceToNextSong } from '@/lib/services/sessionService';
 import { getStreamingServiceForVenue } from '@/lib/services/streaming';
 import { prisma } from '@/lib/db/prisma';
@@ -68,8 +69,10 @@ export async function POST(
     return NextResponse.json({ error: 'Song not found' }, { status: 404 });
   }
 
-  // Mark request as APPROVED first
+  // Mark request as APPROVED and pin as now-playing
   await updateRequestStatus(requestId, 'APPROVED');
+  await setSessionNowPlaying(session.id, requestId);
+  invalidateQueueCache(session.id);
 
   // Get streaming service
   const service = await getStreamingServiceForVenue(venueId);

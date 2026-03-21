@@ -54,10 +54,24 @@ export function usePlayerOrchestrator({
     return queue[0];
   }, [queue]);
 
-  // Keep the lock ref in sync (side-effect after render)
+  // Keep the lock ref in sync and immediately report to server
   useEffect(() => {
     lockedRequestIdRef.current = currentQueueSong?.requestId ?? null;
-  }, [currentQueueSong?.requestId]);
+
+    // Immediately tell the server which song is now playing so the ranking
+    // engine can pin it at position 0 (don't wait for the 5-second heartbeat)
+    if (sessionId && venueId && adminToken && currentQueueSong?.requestId) {
+      fetch(`/api/admin/${venueId}/playback-state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPassword: adminToken,
+          nowPlayingRequestId: currentQueueSong.requestId,
+          state: { isPlaying: true, progressMs: 0, durationMs: 0 },
+        }),
+      }).catch(() => { /* ignore */ });
+    }
+  }, [currentQueueSong?.requestId, sessionId, venueId, adminToken]);
 
   const queueVideoId = currentQueueSong?.youtubeId ?? null;
 
@@ -108,6 +122,7 @@ export function usePlayerOrchestrator({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         adminPassword: adminToken,
+        nowPlayingRequestId: currentQueueSong?.requestId ?? null,
         state: {
           isPlaying: state.isPlaying,
           progressMs: state.progressMs,
@@ -124,7 +139,7 @@ export function usePlayerOrchestrator({
     }).catch((err) => {
       console.error('[usePlayerOrchestrator] Heartbeat failed:', err);
     });
-  }, [sessionId, venueId, adminToken, currentTrackInfo, currentVideoId, activePlaylistId]);
+  }, [sessionId, venueId, adminToken, currentTrackInfo, currentVideoId, activePlaylistId, currentQueueSong?.requestId]);
 
   return {
     currentVideoId,
