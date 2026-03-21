@@ -30,10 +30,6 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [searching, setSearching] = useState(false);
-  const [showManual, setShowManual] = useState(false);
-  const [title, setTitle] = useState('');
-  const [artist, setArtist] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
@@ -188,9 +184,6 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
     // Clear form and show success
     setQuery('');
     setResults([]);
-    setTitle('');
-    setArtist('');
-    setShowManual(false);
     setSuccess(true);
     setTimeout(() => setSuccess(false), 3000);
 
@@ -216,14 +209,6 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
     });
   };
 
-  const handleManualSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title || !artist) return;
-    setLoading(true);
-    submitOptimistic({ title, artist });
-    setLoading(false);
-  };
-
   const isCoolingDown = cooldownSeconds > 0;
   const cooldownMinutes = Math.floor(cooldownSeconds / 60);
   const cooldownSecs = cooldownSeconds % 60;
@@ -241,73 +226,23 @@ export function SongRequestForm({ sessionId, venueId, onRequestSubmitted }: Prop
         </div>
       )}
 
-      {!showManual ? (
-        <>
-          {/* Search input */}
-          <input
-            type="text"
-            placeholder="Search for a song..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            disabled={isCoolingDown}
-            className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          />
+      {/* Search input */}
+      <input
+        type="text"
+        placeholder="Search for a song..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        disabled={isCoolingDown}
+        className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+      />
 
-          {/* Search results dropdown */}
-          {!isCoolingDown && (
-            <SongSearchResults
-              results={results}
-              onSelect={handleSelect}
-              loading={searching}
-            />
-          )}
-
-          {/* Manual entry fallback */}
-          <button
-            onClick={() => setShowManual(true)}
-            disabled={isCoolingDown}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Can&apos;t find it? Enter manually
-          </button>
-        </>
-      ) : (
-        <>
-          {/* Manual entry form */}
-          <form onSubmit={handleManualSubmit} className="space-y-3">
-            <input
-              type="text"
-              placeholder="Song title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              disabled={isCoolingDown}
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <input
-              type="text"
-              placeholder="Artist name"
-              value={artist}
-              onChange={(e) => setArtist(e.target.value)}
-              required
-              disabled={isCoolingDown}
-              className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm placeholder-gray-500 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <button
-              type="submit"
-              disabled={loading || !title || !artist || isCoolingDown}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors disabled:cursor-not-allowed"
-            >
-              {loading ? 'Submitting...' : isCoolingDown ? `Wait ${cooldownDisplay}` : 'Request Song'}
-            </button>
-          </form>
-          <button
-            onClick={() => setShowManual(false)}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            Back to search
-          </button>
-        </>
+      {/* Search results dropdown */}
+      {!isCoolingDown && (
+        <SongSearchResults
+          results={results}
+          onSelect={handleSelect}
+          loading={searching}
+        />
       )}
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
