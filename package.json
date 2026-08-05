@@ -1,43 +1,28 @@
 {
-  "name": "openauxapp",
-  "version": "0.1.0",
+  "name": "openaux",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "dev:https": "next dev --experimental-https --experimental-https-key .cert/localhost-key.pem --experimental-https-cert .cert/localhost.pem",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+  "version": "0.0.1",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
   },
-  "dependencies": {
-    "@prisma/client": "^5.22.0",
-    "@stripe/react-stripe-js": "^5.6.1",
-    "@stripe/stripe-js": "^8.10.0",
-    "@types/bcryptjs": "^2.4.6",
-    "bcryptjs": "^3.0.3",
-    "jsqr": "^1.4.0",
-    "next": "16.1.6",
-    "prisma": "^5.22.0",
-    "qrcode.react": "^4.2.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "stripe": "^20.4.1",
-    "uuid": "^13.0.0",
-    "zustand": "^5.0.11"
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@types/uuid": "^10.0.0",
-    "eslint": "^9",
-    "eslint-config-next": "16.1.6",
-    "tailwindcss": "^4",
-    "ts-node": "^10.9.2",
-    "typescript": "5.9.3"
-  },
-  "prisma": {
-    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
+    "@eslint/js": "^9.15.0",
+    "eslint": "^9.15.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.15.0",
+    "vitest": "^3.0.0"
   }
 }

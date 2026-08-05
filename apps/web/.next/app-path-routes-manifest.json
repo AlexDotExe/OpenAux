@@ -1,0 +1,8 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/page": "/",
+  "/patron/[venueId]/page": "/patron/[venueId]",
+  "/patron/join/page": "/patron/join",
+  "/venue/page": "/venue",
+  "/venue/[venueId]/page": "/venue/[venueId]"
+}

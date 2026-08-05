@@ -1,0 +1,60 @@
+{
+  "pages": {
+    "/_not-found/page": [
+      "static/chunks/webpack-ca2371d8047ab959.js",
+      "static/chunks/87c73c54-24122e7b92478d00.js",
+      "static/chunks/18-ff6a2aec3d6a1486.js",
+      "static/chunks/main-app-dec4b832266abbfe.js",
+      "static/chunks/app/_not-found/page-43c6411ac00d5044.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack-ca2371d8047ab959.js",
+      "static/chunks/87c73c54-24122e7b92478d00.js",
+      "static/chunks/18-ff6a2aec3d6a1486.js",
+      "static/chunks/main-app-dec4b832266abbfe.js",
+      "static/css/a5c9c53d85926731.css",
+      "static/chunks/app/layout-29038dd5451dde82.js"
+    ],
+    "/page": [
+      "static/chunks/webpack-ca2371d8047ab959.js",
+      "static/chunks/87c73c54-24122e7b92478d00.js",
+      "static/chunks/18-ff6a2aec3d6a1486.js",
+      "static/chunks/main-app-dec4b832266abbfe.js",
+      "static/chunks/664-6d821dc1aacb6b48.js",
+      "static/chunks/app/page-af74ba01d29615de.js"
+    ],
+    "/patron/[venueId]/page": [
+      "static/chunks/webpack-ca2371d8047ab959.js",
+      "static/chunks/87c73c54-24122e7b92478d00.js",
+      "static/chunks/18-ff6a2aec3d6a1486.js",
+      "static/chunks/main-app-dec4b832266abbfe.js",
+      "static/chunks/664-6d821dc1aacb6b48.js",
+      "static/chunks/172-b5192f2a0dd397e1.js",
+      "static/chunks/app/patron/[venueId]/page-7248d26681e7e0a0.js"
+    ],
+    "/patron/join/page": [
+      "static/chunks/webpack-ca2371d8047ab959.js",
+      "static/chunks/87c73c54-24122e7b92478d00.js",
+      "static/chunks/18-ff6a2aec3d6a1486.js",
+      "static/chunks/main-app-dec4b832266abbfe.js",
+      "static/chunks/172-b5192f2a0dd397e1.js",
+      "static/chunks/app/patron/join/page-b770bf5275825515.js"
+    ],
+    "/venue/page": [
+      "static/chunks/webpack-ca2371d8047ab959.js",
+      "static/chunks/87c73c54-24122e7b92478d00.js",
+      "static/chunks/18-ff6a2aec3d6a1486.js",
+      "static/chunks/main-app-dec4b832266abbfe.js",
+      "static/chunks/172-b5192f2a0dd397e1.js",
+      "static/chunks/app/venue/page-2c968ae679cc0636.js"
+    ],
+    "/venue/[venueId]/page": [
+      "static/chunks/webpack-ca2371d8047ab959.js",
+      "static/chunks/87c73c54-24122e7b92478d00.js",
+      "static/chunks/18-ff6a2aec3d6a1486.js",
+      "static/chunks/main-app-dec4b832266abbfe.js",
+      "static/chunks/172-b5192f2a0dd397e1.js",
+      "static/chunks/app/venue/[venueId]/page-39fbf7bee5315bff.js"
+    ]
+  }
+}
