@@ -29,6 +29,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       suggestionModeEnabled: venue.suggestionModeEnabled,
       crowdControlEnabled: venue.crowdControlEnabled,
       youtubePlaylistId: venue.youtubePlaylistId ?? null,
+      spotifyDeviceId: venue.spotifyDeviceId ?? null,
     });
   } catch (err) {
     console.error('[GET /api/venues/[venueId]/settings]', err);

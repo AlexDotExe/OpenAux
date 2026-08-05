@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { PlaylistManager } from './PlaylistManager';
 import { SponsorSongsManager } from './SponsorSongsManager';
+import { SpotifyDevicePicker } from './SpotifyDevicePicker';
 import type { PendingSuggestion } from '@/app/admin/[venueId]/page';
 
 interface SponsorSong {
@@ -68,6 +69,9 @@ interface Props {
   onBulkAction: (action: 'approve' | 'reject', requestIds: string[]) => void;
   // YouTube Player (track info only)
   currentTrackInfo?: { title: string; artist: string; source: 'queue' | 'playlist' } | null;
+  // Spotify Device
+  spotifyDeviceId?: string | null;
+  onSpotifyDeviceSelected?: (deviceId: string) => void;
 }
 
 type AdminTab = 'account' | 'venue' | 'session';
@@ -113,6 +117,8 @@ export function AdminControlPanel({
   onRejectSuggestion,
   onBulkAction,
   currentTrackInfo,
+  spotifyDeviceId,
+  onSpotifyDeviceSelected,
 }: Props) {
   const [activeTab, setActiveTab] = useState<AdminTab>('session');
   const [settingsExpanded, setSettingsExpanded] = useState(false);
@@ -712,6 +718,18 @@ export function AdminControlPanel({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Spotify Device Picker - Show when Spotify is connected and session is active */}
+          {activeSession && streamingService === 'spotify' && isConnected && onSpotifyDeviceSelected && (
+            <div className="space-y-3 border-t border-gray-800 pt-4">
+              <SpotifyDevicePicker
+                venueId={venueId}
+                adminToken={password}
+                selectedDeviceId={spotifyDeviceId ?? null}
+                onDeviceSelected={onSpotifyDeviceSelected}
+              />
             </div>
           )}
 

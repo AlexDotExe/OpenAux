@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminToken } from '@/lib/db/venues';
 import { getStreamingServiceForVenue } from '@/lib/services/streaming';
+import { SpotifyService } from '@/lib/services/streaming/spotify';
 
 /**
  * GET: Returns current playback state
@@ -65,6 +66,24 @@ export async function POST(
         break;
       case 'skip':
         await service.skip();
+        break;
+      case 'addToQueue':
+        if (!trackId) {
+          return NextResponse.json({ error: 'trackId required for addToQueue' }, { status: 400 });
+        }
+        if (service.name !== 'spotify') {
+          return NextResponse.json({ error: 'addToQueue only supported for Spotify' }, { status: 400 });
+        }
+        await (service as SpotifyService).addToQueue(trackId, deviceId);
+        break;
+      case 'transferPlayback':
+        if (!deviceId) {
+          return NextResponse.json({ error: 'deviceId required for transferPlayback' }, { status: 400 });
+        }
+        if (service.name !== 'spotify') {
+          return NextResponse.json({ error: 'transferPlayback only supported for Spotify' }, { status: 400 });
+        }
+        await (service as SpotifyService).transferPlayback(deviceId);
         break;
       default:
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

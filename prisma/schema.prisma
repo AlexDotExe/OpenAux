@@ -146,6 +146,8 @@ model Venue {
   playlistPriority Boolean @default(false)
   // youtubePlaylistId: YouTube playlist ID for native fallback playback when queue is empty
   youtubePlaylistId String?
+  // spotifyDeviceId: Selected Spotify Connect device for playback
+  spotifyDeviceId   String?
 
   // ── Relations ──
   sponsorSongs     SponsorSong[]

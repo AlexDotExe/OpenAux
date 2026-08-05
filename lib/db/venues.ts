@@ -177,6 +177,7 @@ export async function updateVenueSettings(
     crowdControlEnabled?: boolean;
     activePlaylistId?: string | null;
     playlistPriority?: boolean;
+    spotifyDeviceId?: string | null;
   },
 ): Promise<Venue> {
   return prisma.venue.update({

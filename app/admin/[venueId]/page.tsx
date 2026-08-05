@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AdminControlPanel } from '@/components/AdminControlPanel';
 import { calculateSmartSettings } from '@/lib/services/smartMonetization';
 import { usePlayerOrchestrator } from '@/lib/hooks/usePlayerOrchestrator';
+import { useSpotifyOrchestrator } from '@/lib/hooks/useSpotifyOrchestrator';
 import { YouTubePlayer } from '@/components/YouTubePlayer';
 
 interface VenueData {
@@ -55,6 +56,13 @@ export interface PendingSuggestion {
   createdAt: string;
 }
 
+function formatMs(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 export default function AdminPage() {
   const params = useParams<{ venueId: string }>();
   const searchParams = useSearchParams();
@@ -78,6 +86,8 @@ export default function AdminPage() {
   const [simulatedUsers, setSimulatedUsers] = useState(0);
   // Playlist settings state
   const [youtubePlaylistId, setYoutubePlaylistId] = useState<string | null>(null);
+  // Spotify device state
+  const [spotifyDeviceId, setSpotifyDeviceId] = useState<string | null>(null);
   // Pending suggestions state
   const [pendingSuggestions, setPendingSuggestions] = useState<PendingSuggestion[]>([]);
   const [payments, setPayments] = useState<Array<{
@@ -211,6 +221,7 @@ export default function AdminPage() {
         setSuggestionModeEnabled(settings.suggestionModeEnabled ?? false);
         setCrowdControlEnabled(settings.crowdControlEnabled ?? true);
         setYoutubePlaylistId(settings.youtubePlaylistId ?? null);
+        setSpotifyDeviceId(settings.spotifyDeviceId ?? null);
       }
     } catch (err) {
       console.error('Failed to load venue settings:', err);
@@ -456,6 +467,26 @@ export default function AdminPage() {
     onAdvanceQueue: handleAdvance,
   });
 
+  // Spotify Orchestrator
+  const {
+    isSpotifyActive,
+    spotifyPlayback,
+    currentSpotifySong,
+    handleSpotifySkip,
+  } = useSpotifyOrchestrator({
+    queue,
+    sessionId: venueData?.activeSession?.id ?? null,
+    venueId: params.venueId,
+    adminToken,
+    spotifyDeviceId,
+    streamingService: venueData?.streamingService ?? null,
+    onAdvanceQueue: handleAdvance,
+  });
+
+  const handleSpotifyDeviceSelected = useCallback((deviceId: string) => {
+    setSpotifyDeviceId(deviceId);
+  }, []);
+
   const handleSaveSettings = async () => {
     setLoading(true);
     setSettingsSaveStatus(null);
@@ -617,7 +648,60 @@ export default function AdminPage() {
           onBulkAction={handleBulkAction}
           // YouTube Player (track info only, player rendered at page level)
           currentTrackInfo={currentTrackInfo}
+          // Spotify Device
+          spotifyDeviceId={spotifyDeviceId}
+          onSpotifyDeviceSelected={handleSpotifyDeviceSelected}
         />
+
+        {/* Spotify Now Playing - rendered when Spotify is the active streaming service */}
+        {venueData?.activeSession && isSpotifyActive && spotifyPlayback && (
+          <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-400">Now Playing</h3>
+              <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded-full">
+                Spotify
+              </span>
+            </div>
+            {spotifyPlayback.currentTrack && (
+              <div className="flex items-center gap-3">
+                {spotifyPlayback.currentTrack.albumArtUrl && (
+                  <img
+                    src={spotifyPlayback.currentTrack.albumArtUrl}
+                    alt="Album art"
+                    className="w-14 h-14 rounded-lg object-cover shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{spotifyPlayback.currentTrack.title}</p>
+                  <p className="text-xs text-gray-400 truncate">{spotifyPlayback.currentTrack.artist}</p>
+                </div>
+              </div>
+            )}
+            {/* Progress bar */}
+            {spotifyPlayback.durationMs > 0 && (
+              <div className="space-y-1">
+                <div className="w-full h-1 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.min(100, (spotifyPlayback.progressMs / spotifyPlayback.durationMs) * 100)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[10px] text-gray-500">
+                  <span>{formatMs(spotifyPlayback.progressMs)}</span>
+                  <span>{formatMs(spotifyPlayback.durationMs)}</span>
+                </div>
+              </div>
+            )}
+            {/* Skip button */}
+            <button
+              onClick={handleSpotifySkip}
+              disabled={loading}
+              className="w-full bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white text-xs py-2 rounded-lg font-medium transition-colors"
+            >
+              Skip
+            </button>
+          </div>
+        )}
 
         {/* YouTube Player - rendered at page level so it persists across tab switches */}
         {venueData?.activeSession && venueData?.streamingService === 'youtube' && (
