@@ -32,6 +32,7 @@ import type {
   CreateRequestResponse,
   JoinSessionRequest,
   JoinSessionResponse,
+  ListPlaybackDevicesResponse,
   PurchaseBoostRequest,
   PurchaseBoostResponse,
   PurchaseCreditsRequest,
@@ -45,6 +46,10 @@ import type {
   SearchResponse,
   SetAnthemRequest,
   SetFallbackPlaylistRequest,
+  SetPlaybackDeviceRequest,
+  SetPlaybackDeviceResponse,
+  SpotifyConnectResponse,
+  SpotifyLinkStatusResponse,
   UpdateVenueSettingsRequest,
   VenueOverrideRequest,
   VenueOwnerAuthResponse,
@@ -129,6 +134,18 @@ export interface ApiClient {
     req: ReportPlaybackStateRequest,
     auth: AuthContext,
   ): Promise<ReportPlaybackStateResponse>;
+  /** Spotify account linking (venue-admin): is an account linked and usable? */
+  spotifyStatus(venueId: string, auth: AuthContext): Promise<SpotifyLinkStatusResponse>;
+  /** Spotify account linking (venue-admin): begin the OAuth flow, returns authorizeUrl. */
+  spotifyConnect(venueId: string, auth: AuthContext): Promise<SpotifyConnectResponse>;
+  /** Spotify Connect devices visible to the linked venue account. */
+  listPlaybackDevices(venueId: string, auth: AuthContext): Promise<ListPlaybackDevicesResponse>;
+  /** Pick the Connect device the DJ brain targets. */
+  setPlaybackDevice(
+    venueId: string,
+    req: SetPlaybackDeviceRequest,
+    auth: AuthContext,
+  ): Promise<SetPlaybackDeviceResponse>;
 }
 
 function authHeaders(auth: AuthContext): Record<string, string> {
@@ -301,6 +318,26 @@ export class HttpApiClient implements ApiClient {
     auth: AuthContext,
   ): Promise<ReportPlaybackStateResponse> {
     return request(`/api/venues/${venueId}/playback/state`, { method: 'POST', body: req, auth });
+  }
+
+  spotifyStatus(venueId: string, auth: AuthContext): Promise<SpotifyLinkStatusResponse> {
+    return request(`/api/venues/${venueId}/spotify/status`, { auth });
+  }
+
+  spotifyConnect(venueId: string, auth: AuthContext): Promise<SpotifyConnectResponse> {
+    return request(`/api/venues/${venueId}/spotify/connect`, { method: 'POST', body: {}, auth });
+  }
+
+  listPlaybackDevices(venueId: string, auth: AuthContext): Promise<ListPlaybackDevicesResponse> {
+    return request(`/api/venues/${venueId}/playback/devices`, { auth });
+  }
+
+  setPlaybackDevice(
+    venueId: string,
+    req: SetPlaybackDeviceRequest,
+    auth: AuthContext,
+  ): Promise<SetPlaybackDeviceResponse> {
+    return request(`/api/venues/${venueId}/playback/device`, { method: 'PUT', body: req, auth });
   }
 }
 
