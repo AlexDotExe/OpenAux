@@ -23,6 +23,7 @@ import type {
 } from '@openaux/shared';
 
 import { getApiClient, type AuthContext } from '../../lib/api';
+import { SpotifyConnectPanel } from './SpotifyConnectPanel';
 import { useConsoleCommands } from '../../lib/playback/useConsoleCommands';
 import {
   buildStateReport,
@@ -51,39 +52,51 @@ export function PlaybackPanel({
   if (musicProvider === 'apple_music') {
     return <ApplePlaybackPanel venueId={venueId} auth={auth} connected={connected} />;
   }
-  return <SpotifyPlaybackPanel nowPlaying={nowPlaying} connected={connected} />;
+  return (
+    <SpotifyPlaybackPanel
+      venueId={venueId}
+      auth={auth}
+      nowPlaying={nowPlaying}
+      connected={connected}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Spotify: read-only status + now-playing readout from realtime events.
+// Spotify: account linking + device picker (SpotifyConnectPanel), plus a
+// now-playing readout fed by the realtime channel. The server drives Spotify
+// Connect playback directly against the picked device.
 // ---------------------------------------------------------------------------
 
 function SpotifyPlaybackPanel({
+  venueId,
+  auth,
   nowPlaying,
   connected,
 }: {
+  venueId: string;
+  auth: AuthContext;
   nowPlaying: NowPlayingChangedEvent['payload'] | null;
   connected: boolean;
 }) {
   const item = nowPlaying?.queueItem ?? null;
   return (
-    <div className="card stack">
-      <div className="top-bar">
-        <strong>Playback — Spotify</strong>
-        <span className={`badge-dot${connected ? ' is-live' : ''}`} />
+    <>
+      <SpotifyConnectPanel venueId={venueId} auth={auth} />
+      <div className="card stack">
+        <div className="top-bar">
+          <strong>Playback — Spotify</strong>
+          <span className={`badge-dot${connected ? ' is-live' : ''}`} />
+        </div>
+        <p className="helper-text">
+          Server-driven Spotify Connect playback on the selected device.
+        </p>
+        <div>
+          <span className="helper-text">Now playing</span>
+          <p>{item ? `${item.title} — ${item.artist}` : 'Nothing playing'}</p>
+        </div>
       </div>
-      {/* TODO(maintainer): call GET /api/venues/:venueId/spotify/status for real
-          link state and GET .../playback/devices for device picking (other
-          workstream owns those endpoints). */}
-      <p className="helper-text">
-        Server-driven Spotify Connect playback. The venue account controls the device; this console
-        is read-only.
-      </p>
-      <div>
-        <span className="helper-text">Now playing</span>
-        <p>{item ? `${item.title} — ${item.artist}` : 'Nothing playing'}</p>
-      </div>
-    </div>
+    </>
   );
 }
 

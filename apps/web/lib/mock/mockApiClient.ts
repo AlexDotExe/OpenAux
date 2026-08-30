@@ -416,6 +416,17 @@ export function createMockApiClient(): ApiClient {
   };
   const mockToken = 'mock-owner-token';
 
+  // Spotify linking state for the mock: the real flow redirects to Spotify and
+  // completes via the public callback, which we can't round-trip here — so
+  // spotifyConnect just marks the account linked so the console's device picker
+  // becomes reachable for demos.
+  let spotifyLinked = false;
+  let selectedDeviceId: string | null = null;
+  const mockDevices = [
+    { providerDeviceId: 'dev-console', name: 'Bar Speakers (this Mac)', isActive: true },
+    { providerDeviceId: 'dev-booth', name: 'DJ Booth iPad', isActive: false },
+  ];
+
   return {
     async venueOwnerSignup(req) {
       return {
@@ -858,6 +869,44 @@ export function createMockApiClient(): ApiClient {
           ttlSeconds: 20,
         },
       });
+    },
+
+    async spotifyStatus(venueId, auth) {
+      if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
+      requireVenueAdmin(store, auth);
+      return {
+        linked: spotifyLinked,
+        scope: spotifyLinked ? 'user-read-playback-state user-modify-playback-state' : null,
+        expiresAt: spotifyLinked ? new Date(Date.now() + 3600_000).toISOString() : null,
+      };
+    },
+
+    async spotifyConnect(venueId, auth) {
+      if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
+      requireVenueAdmin(store, auth);
+      // Real flow redirects to Spotify; the mock links immediately so the picker shows.
+      spotifyLinked = true;
+      return { authorizeUrl: 'https://accounts.spotify.com/authorize?mock=1' };
+    },
+
+    async listPlaybackDevices(venueId, auth) {
+      if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
+      requireVenueAdmin(store, auth);
+      if (!spotifyLinked) err('unauthorized', 'Link a Spotify account first.');
+      return {
+        devices: mockDevices.map((d) => ({
+          ...d,
+          isActive: selectedDeviceId ? d.providerDeviceId === selectedDeviceId : d.isActive,
+        })),
+      };
+    },
+
+    async setPlaybackDevice(venueId, req, auth) {
+      if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
+      requireVenueAdmin(store, auth);
+      if (!spotifyLinked) err('unauthorized', 'Link a Spotify account first.');
+      selectedDeviceId = req.providerDeviceId;
+      return { playbackDeviceId: selectedDeviceId };
     },
   };
 }

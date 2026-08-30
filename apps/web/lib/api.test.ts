@@ -88,6 +88,60 @@ describe('HttpApiClient', () => {
 
     await expect(client.skip('venue-1', { venueAdminToken: 'tok' })).resolves.toBeUndefined();
   });
+
+  it('GET /spotify/status with the venue-admin bearer token', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ linked: true, scope: 'x', expiresAt: null }));
+    const client = new HttpApiClient();
+
+    const res = await client.spotifyStatus('venue-1', { venueAdminToken: 'tok' });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/api/venues/venue-1/spotify/status');
+    expect(init.method ?? 'GET').toBe('GET');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+    expect(res.linked).toBe(true);
+  });
+
+  it('POST /spotify/connect returns the authorizeUrl', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ authorizeUrl: 'https://accounts.spotify.com/x' }));
+    const client = new HttpApiClient();
+
+    const res = await client.spotifyConnect('venue-1', { venueAdminToken: 'tok' });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/api/venues/venue-1/spotify/connect');
+    expect(init.method).toBe('POST');
+    expect(res.authorizeUrl).toBe('https://accounts.spotify.com/x');
+  });
+
+  it('GET /playback/devices returns the device list', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ devices: [{ providerDeviceId: 'd1', name: 'Speaker', isActive: true }] }),
+    );
+    const client = new HttpApiClient();
+
+    const res = await client.listPlaybackDevices('venue-1', { venueAdminToken: 'tok' });
+
+    expect(fetchMock.mock.calls[0]![0]).toContain('/api/venues/venue-1/playback/devices');
+    expect(res.devices[0]!.providerDeviceId).toBe('d1');
+  });
+
+  it('PUT /playback/device sends the chosen device id', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ playbackDeviceId: 'd1' }));
+    const client = new HttpApiClient();
+
+    const res = await client.setPlaybackDevice(
+      'venue-1',
+      { providerDeviceId: 'd1' },
+      { venueAdminToken: 'tok' },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/api/venues/venue-1/playback/device');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body)).toEqual({ providerDeviceId: 'd1' });
+    expect(res.playbackDeviceId).toBe('d1');
+  });
 });
 
 describe('getApiClient', () => {

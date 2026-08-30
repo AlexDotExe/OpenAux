@@ -11,7 +11,6 @@ import { useParams, useRouter } from 'next/navigation';
 import type { QueueSnapshot } from '@openaux/shared';
 
 import { getApiClient, type AuthContext, type VenueSummary } from '../../../lib/api';
-import { resolveConsoleMusicProvider } from '../../../lib/config';
 import { clearVenueAdminToken, loadVenueAdminToken } from '../../../lib/session';
 import { useVenueChannel } from '../../../lib/useVenueChannel';
 import { AnthemSetupForm } from '../../../components/venue/AnthemSetupForm';
@@ -135,7 +134,7 @@ export default function VenueConsolePage() {
           <PlaybackPanel
             venueId={venueId}
             auth={auth}
-            musicProvider={resolveConsoleMusicProvider()}
+            musicProvider={venue.musicProvider}
             nowPlaying={channel.nowPlaying}
             connected={channel.connectionState === 'open'}
           />
