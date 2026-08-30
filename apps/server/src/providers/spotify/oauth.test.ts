@@ -24,6 +24,8 @@ describe('buildAuthorizeUrl', () => {
     expect(url.searchParams.get('redirect_uri')).toBe('https://api.example/api/spotify/callback');
     expect(url.searchParams.get('state')).toBe('signed-state');
     expect(url.searchParams.get('scope')).toBe(SPOTIFY_PLAYBACK_SCOPES.join(' '));
+    // show_dialog forces the consent screen so operators can switch accounts.
+    expect(url.searchParams.get('show_dialog')).toBe('true');
   });
 });
 

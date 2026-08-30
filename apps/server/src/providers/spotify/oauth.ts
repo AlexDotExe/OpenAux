@@ -31,6 +31,11 @@ export function buildAuthorizeUrl(opts: {
     redirect_uri: opts.redirectUri,
     scope: (opts.scopes ?? SPOTIFY_PLAYBACK_SCOPES).join(' '),
     state: opts.state,
+    // Force the consent screen instead of silently auto-redirecting the already
+    // logged-in account. This is what lets an operator switch Spotify accounts
+    // (the screen exposes a "Not you? / Log out" link); without it a browser
+    // with an active Spotify session links that account with no chance to pick.
+    show_dialog: 'true',
   });
   return `${AUTHORIZE_URL}?${params.toString()}`;
 }
