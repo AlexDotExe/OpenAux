@@ -4,13 +4,14 @@
  * Session/QR display for the venue console. Contract gap: there's no
  * documented GET /api/venues/:venueId to fetch qrToken before a session
  * exists (see lib/api.ts VenueSummary note) — we call the same assumed
- * endpoint the mock client fabricates. Also no real QR image library is
- * wired up (scope says "no UI library dependencies"); this renders the join
- * URL as copyable text plus a placeholder QR box — swap in a proper QR
- * renderer (e.g. the `qrcode` package) before shipping.
+ * endpoint the mock client fabricates. The QR itself is rendered from a
+ * self-contained, dependency-free encoder (lib/qrcode.ts) as inline SVG, so
+ * the join URL never leaves the app and no UI library is required.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+
+import { encodeQr, modulesToSvgPath } from '../../lib/qrcode';
 
 export interface QrPanelProps {
   venueName: string;
@@ -18,8 +19,24 @@ export interface QrPanelProps {
   controlMode: string;
 }
 
+const QUIET_ZONE = 4;
+
 export function QrPanel({ venueName, joinUrl, controlMode }: QrPanelProps) {
   const [copied, setCopied] = useState(false);
+
+  const qr = useMemo(() => {
+    try {
+      const code = encodeQr(joinUrl);
+      return {
+        viewBox: code.size + QUIET_ZONE * 2,
+        path: modulesToSvgPath(code.modules, QUIET_ZONE),
+      };
+    } catch {
+      // encodeQr only throws if joinUrl is longer than QR level-M capacity;
+      // fall back to the copyable link below rather than crashing the console.
+      return null;
+    }
+  }, [joinUrl]);
 
   const handleCopy = async () => {
     try {
@@ -39,25 +56,28 @@ export function QrPanel({ venueName, joinUrl, controlMode }: QrPanelProps) {
           {controlMode === 'crowd' ? 'Crowd control' : 'Suggestion mode'}
         </span>
       </div>
-      <div
-        aria-hidden
-        style={{
-          width: 160,
-          height: 160,
-          margin: '0 auto',
-          background: 'repeating-conic-gradient(#000 0% 25%, #fff 0% 50%)',
-          backgroundSize: '20px 20px',
-          borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#fff',
-          textShadow: '0 0 4px #000',
-          fontSize: 12,
-        }}
-      >
-        QR placeholder
-      </div>
+      {qr ? (
+        <svg
+          role="img"
+          aria-label={`QR code linking to ${joinUrl}`}
+          viewBox={`0 0 ${qr.viewBox} ${qr.viewBox}`}
+          shapeRendering="crispEdges"
+          style={{
+            width: 160,
+            height: 160,
+            margin: '0 auto',
+            display: 'block',
+            borderRadius: 8,
+          }}
+        >
+          <rect width={qr.viewBox} height={qr.viewBox} fill="#fff" />
+          <path d={qr.path} fill="#000" />
+        </svg>
+      ) : (
+        <p className="helper-text" style={{ textAlign: 'center' }}>
+          Join link is too long to render as a QR code — use the link below.
+        </p>
+      )}
       <p className="helper-text" style={{ wordBreak: 'break-all' }}>
         {joinUrl}
       </p>
