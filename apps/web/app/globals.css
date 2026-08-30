@@ -152,17 +152,39 @@ button:disabled {
 input[type='text'],
 input[type='number'],
 input[type='search'],
+input[type='email'],
+input[type='password'],
+input[type='tel'],
+input[type='url'],
+select,
 textarea {
-  background: var(--surface-raised);
+  background: #fff;
+  color: #000;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   width: 100%;
 }
 
+input[type='text']::placeholder,
+input[type='number']::placeholder,
+input[type='search']::placeholder,
+input[type='email']::placeholder,
+input[type='password']::placeholder,
+input[type='tel']::placeholder,
+input[type='url']::placeholder,
+textarea::placeholder {
+  color: #6b7280;
+}
+
 input[type='text']:focus,
 input[type='number']:focus,
 input[type='search']:focus,
+input[type='email']:focus,
+input[type='password']:focus,
+input[type='tel']:focus,
+input[type='url']:focus,
+select:focus,
 textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
