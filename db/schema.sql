@@ -23,6 +23,14 @@ create table users (
   auth_subject    text,                          -- provider-side id; null for guests
   credit_balance  integer not null default 0 check (credit_balance >= 0),
   influence_score numeric not null default 0,
+  -- Reputation-based weighting v1 (SPEC.md §5 V1). Counters feed reputation_score,
+  -- which feeds the V1 scoring skip_risk/spam inputs. Maintained by the reputation
+  -- layer, never inside ranking.
+  reputation_score   numeric not null default 0,
+  upvotes_received   integer not null default 0,
+  downvotes_received integer not null default 0,
+  spam_attempts      integer not null default 0,
+  songs_skipped      integer not null default 0,
   created_at      timestamptz not null default now(),
   unique (auth_provider, auth_subject)
 );
@@ -63,6 +71,18 @@ create table venues (
   -- Spotify Connect device the DJ brain targets; null until picked in the console.
   -- Unused for Apple Music venues (the console browser is the device).
   playback_device_id            text,
+  -- Power Hour Mode (SPEC.md §5 V1): venue-activated genre multiplier for a window.
+  -- All null when inactive; cleared by the venue layer once power_hour_ends_at passes.
+  power_hour_genre              text,
+  power_hour_multiplier         numeric,
+  power_hour_ends_at            timestamptz,
+  -- Venue location for join-time presence verification (SPEC.md §5 V1 / §7).
+  -- Sensitive: patron location is captured ONLY at join, for the stated purpose of
+  -- confirming presence within geofence_radius_m, and is never stored as precise
+  -- history. Null until the venue sets its coordinates.
+  latitude                      numeric,
+  longitude                     numeric,
+  geofence_radius_m             integer,
   created_at               timestamptz not null default now()
 );
 
@@ -105,7 +125,13 @@ create table sessions (
   active_request_count integer not null default 0,
   cooldown_ends_at     timestamptz,
   last_vote_at         timestamptz,
-  last_request_at      timestamptz
+  last_request_at      timestamptz,
+  -- Coordinates captured at join for presence verification (SPEC.md §5 V1 / §7).
+  -- Sensitive: requested only at join with a stated purpose, used to confirm the
+  -- patron is within the venue geofence, never treated as location history.
+  -- Null when the patron declined or location was not requested.
+  join_latitude        numeric,
+  join_longitude       numeric
 );
 create index sessions_venue_active_idx on sessions (venue_id) where is_active;
 create unique index sessions_one_active_per_user_venue
@@ -125,6 +151,8 @@ create table queue_items (
   priority_boost_count     integer not null default 0,
   instant_vote_count       integer not null default 0,
   super_boost_count        integer not null default 0,
+  -- Running tally of crowd-skip votes against this item while playing (SPEC.md §5 V1).
+  crowd_skip_votes         integer not null default 0,
   explicit_flag            boolean not null default false,
   genre                    text,
   artist                   text not null,
@@ -179,6 +207,23 @@ create table credits_ledger (
   created_at       timestamptz not null default now()
 );
 create index credits_ledger_user_idx on credits_ledger (user_id, created_at desc);
+
+-- Boost Codes (SPEC.md §5 V1, decision D7): venues generate single-use promo codes
+-- from app-fixed tiers (beer +1 / cocktail +2 / bottle +10) tied to qualifying
+-- purchases; a patron redeems a code for credits. Codes expire 30 min after issue.
+-- credit_value is set by the server from the tier (not venue-arbitrary).
+create table boost_codes (
+  boost_code_id uuid primary key default gen_random_uuid(),
+  code          text not null unique,
+  venue_id      uuid not null references venues(venue_id),
+  tier          text not null check (tier in ('beer', 'cocktail', 'bottle')),
+  credit_value  integer not null,
+  issued_at     timestamptz not null default now(),
+  expires_at    timestamptz not null,
+  redeemed_by   uuid references users(user_id),
+  redeemed_at   timestamptz
+);
+create index boost_codes_venue_idx on boost_codes (venue_id, issued_at desc);
 
 create table analytics_events (
   event_id        uuid primary key default gen_random_uuid(),
