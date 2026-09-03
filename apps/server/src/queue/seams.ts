@@ -28,6 +28,12 @@ import type {
 export interface FrictionInputs {
   artistRepeatPenalty: number;
   spamPenalty: number;
+  /**
+   * Reputation-based skip-risk term for the V1 capped model (SPEC.md §4 V1+: −D·skip_risk),
+   * supplied by WS6. Optional + additive so the V0 model and existing FrictionProvider
+   * implementations are unaffected; defaults to 0 when absent.
+   */
+  skipRisk?: number;
 }
 
 export const ZERO_FRICTION: FrictionInputs = { artistRepeatPenalty: 0, spamPenalty: 0 };

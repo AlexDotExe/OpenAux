@@ -9,6 +9,7 @@
 import type {
   CreateRequestResponse,
   CastVoteResponse,
+  CrowdSkipVoteResponse,
   QueuePositionResponse,
   QueueSnapshot,
   QueueItem,
@@ -25,7 +26,9 @@ import {
 } from './constants.js';
 import { checkRequestEligibility } from './eligibility.js';
 import { isPlayable, selectNextTrack, type PlayabilityContext } from './dj-brain.js';
-import { rankItems, resolveWeights } from './ranking.js';
+import { passesPlayabilityGate } from './playability.js';
+import { crowdSkipThreshold, shouldCrowdSkip } from './crowd-skip.js';
+import { rankItems, rankItemsV1, resolveWeights, resolveWeightsV1 } from './ranking.js';
 import { buildPositionResponse, buildQueueSnapshot } from './snapshot.js';
 import { resolveCastVote, resolveRemoveVote } from './votes.js';
 import { QueueError } from './errors.js';
@@ -74,6 +77,8 @@ interface RecomputeResult {
   nowPlaying: QueueItem | null;
   ranked: QueueItem[];
   frictionByItem: Map<QueueItemId, FrictionInputs>;
+  /** Active sessions at the venue — denominator for the V1 min-vote gate / demand override. */
+  activeUserCount: number;
 }
 
 export class QueueService {
@@ -224,6 +229,75 @@ export class QueueService {
   }
 
   // -----------------------------------------------------------------------
+  // Crowd-voted skip (SPEC.md §5 V1) — patrons skip the now-playing song
+  // -----------------------------------------------------------------------
+
+  /**
+   * Cast a crowd-skip vote against the currently-playing song. Idempotent per user
+   * (one skip-vote per playing item; a repeat throws `already_skip_voted`). Emits
+   * `crowd_skip_vote_update` + `crowd_skip_vote` analytics per vote. When the tally crosses
+   * the room-size threshold (crowd-skip.ts), the song is skipped: `song_crowd_skipped`
+   * realtime + analytics are emitted, and `advance('skipped')` finishes the current song
+   * (its own `song_skipped` analytics + terminal status) and moves the queue on.
+   */
+  async castCrowdSkipVote(params: {
+    queueItemId: QueueItemId;
+    userId: UserId;
+  }): Promise<CrowdSkipVoteResponse> {
+    const { repository } = this.deps;
+    const item = await repository.getQueueItem(params.queueItemId);
+    if (!item) throw new QueueError('not_found', 'Queue item not found.');
+    // Crowd-skip only targets the now-playing song (contract: CrowdSkipVoteRequest).
+    if (item.status !== 'playing') {
+      throw new QueueError('validation', 'Crowd-skip only applies to the now-playing song.');
+    }
+
+    if (await repository.hasCrowdSkipVoted(params.queueItemId, params.userId)) {
+      throw new QueueError('already_skip_voted', 'You have already voted to skip this song.');
+    }
+
+    const updated = await repository.recordCrowdSkipVote(params.queueItemId, params.userId);
+    const activeUserCount = await repository.getActiveUserCount(item.venueId);
+    const threshold = crowdSkipThreshold(activeUserCount);
+
+    this.deps.broadcaster.broadcastToVenue(item.venueId, {
+      type: 'crowd_skip_vote_update',
+      payload: {
+        queueItemId: params.queueItemId,
+        crowdSkipVotes: updated.crowdSkipVotes,
+        threshold,
+      },
+    });
+    this.deps.emitAnalyticsEvent({
+      eventType: 'crowd_skip_vote',
+      venueId: item.venueId,
+      actorUserId: params.userId,
+      queueItemId: params.queueItemId,
+      metadata: { crowdSkipVotes: updated.crowdSkipVotes, threshold },
+    });
+
+    const skipped = shouldCrowdSkip(updated.crowdSkipVotes, activeUserCount);
+    if (skipped) {
+      this.deps.broadcaster.broadcastToVenue(item.venueId, {
+        type: 'song_crowd_skipped',
+        payload: { queueItemId: params.queueItemId, crowdSkipVotes: updated.crowdSkipVotes },
+      });
+      this.deps.emitAnalyticsEvent({
+        eventType: 'song_crowd_skipped',
+        venueId: item.venueId,
+        actorUserId: params.userId,
+        queueItemId: params.queueItemId,
+        metadata: { crowdSkipVotes: updated.crowdSkipVotes, threshold },
+      });
+      // advance() finishes the now-playing song with 'skipped' (emitting song_skipped) and
+      // selects the next track / fallback, so the room is never silent.
+      await this.advance({ venueId: item.venueId, reason: 'skipped' });
+    }
+
+    return { queueItem: updated, crowdSkipVotes: updated.crowdSkipVotes, skipped };
+  }
+
+  // -----------------------------------------------------------------------
   // Reads
   // -----------------------------------------------------------------------
 
@@ -271,7 +345,7 @@ export class QueueService {
 
     await this.finishCurrent(params.venueId, params.reason);
 
-    const { ranked } = await this.recompute(params.venueId, { persist: true });
+    const { ranked, activeUserCount } = await this.recompute(params.venueId, { persist: true });
     const [recentArtists, playedCount, forcedItemId] = await Promise.all([
       repository.getRecentPlayedArtists(params.venueId, ARTIST_REPEAT_WINDOW),
       repository.getPlayedCount(params.venueId),
@@ -289,6 +363,20 @@ export class QueueService {
       fallbackPlaylist: venue.fallbackPlaylist,
       fallbackCursor: playedCount,
       forcedItemId,
+      // V1 playability guardrail (SPEC.md §4 / D3): when the venue runs the V1 model, an
+      // item must also clear the min-vote gate (or the 70%-demand override). If the
+      // top-ranked item fails, selection falls through to the next playable item and
+      // ultimately the venue playlist — never silence. V0 venues pass no gate (unchanged).
+      gate:
+        venue.scoringModel === 'v1'
+          ? (item) =>
+              passesPlayabilityGate({
+                upvotesCount: item.upvotesCount,
+                downvotesCount: item.downvotesCount,
+                supporterCount: item.upvotesCount,
+                activeUserCount,
+              })
+          : undefined,
     });
 
     if (selection.kind === 'queue_item') {
@@ -454,9 +542,10 @@ export class QueueService {
     const venue = await repository.getVenueConfig(venueId);
     if (!venue) throw new QueueError('not_found', 'Venue not found.');
 
-    const [nowPlaying, items] = await Promise.all([
+    const [nowPlaying, items, activeUserCount] = await Promise.all([
       repository.getNowPlaying(venueId),
       repository.getLiveQueueItems(venueId),
+      repository.getActiveUserCount(venueId),
     ]);
 
     const frictionByItem = await this.deps.frictionProvider.getFriction({
@@ -468,8 +557,16 @@ export class QueueService {
       })),
     });
 
-    const weights = resolveWeights(venue.scoringWeightsOverride);
-    const ranked = rankItems(items, weights, frictionByItem);
+    // Versioned ranking path (SPEC.md §4 V1+): V0 stays the default; a venue opts into the
+    // capped paid-points model via scoringModel === 'v1'. Both delegate the formula to
+    // @openaux/shared and reuse the shared tiebreakers.
+    const ranked =
+      venue.scoringModel === 'v1'
+        ? rankItemsV1(items, resolveWeightsV1(venue.scoringWeightsOverrideV1), {
+            now: this.deps.clock.now(),
+            frictionByItem,
+          })
+        : rankItems(items, resolveWeights(venue.scoringWeightsOverride), frictionByItem);
 
     if (opts.persist && ranked.length > 0) {
       const calcAt = this.deps.clock.now();
@@ -482,7 +579,7 @@ export class QueueService {
       );
     }
 
-    return { venue, nowPlaying, ranked, frictionByItem };
+    return { venue, nowPlaying, ranked, frictionByItem, activeUserCount };
   }
 
   private async recomputeAndBroadcast(venueId: VenueId): Promise<void> {
