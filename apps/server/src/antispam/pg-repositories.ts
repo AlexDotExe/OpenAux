@@ -5,6 +5,7 @@
  */
 
 import type { RecentlyPlayedArtistsRepository, VoteActivityRepository } from './friction.js';
+import type { ReputationCounters, ReputationRepository } from './reputation.js';
 import type { ExpiredSessionCandidate, SessionRepository } from './sweeper.js';
 
 /** Minimal shape we need from `pg`'s Pool — keeps this file test-stubbable. */
@@ -55,6 +56,93 @@ export function createPgVoteActivityRepository(pool: QueryablePool): VoteActivit
         [venueId, [...userIds], since],
       );
       return new Map(result.rows.map((row) => [row.user_id, Number(row.vote_count)]));
+    },
+  };
+}
+
+const REPUTATION_COLUMNS: readonly (keyof ReputationCounters)[] = [
+  'upvotesReceived',
+  'downvotesReceived',
+  'spamAttempts',
+  'songsSkipped',
+];
+
+const REPUTATION_COLUMN_SQL: Readonly<Record<keyof ReputationCounters, string>> = {
+  upvotesReceived: 'upvotes_received',
+  downvotesReceived: 'downvotes_received',
+  spamAttempts: 'spam_attempts',
+  songsSkipped: 'songs_skipped',
+};
+
+function rowToCounters(row: {
+  upvotes_received: number | string;
+  downvotes_received: number | string;
+  spam_attempts: number | string;
+  songs_skipped: number | string;
+}): ReputationCounters {
+  return {
+    upvotesReceived: Number(row.upvotes_received),
+    downvotesReceived: Number(row.downvotes_received),
+    spamAttempts: Number(row.spam_attempts),
+    songsSkipped: Number(row.songs_skipped),
+  };
+}
+
+export function createPgReputationRepository(pool: QueryablePool): ReputationRepository {
+  return {
+    async getCounters(userId: string): Promise<ReputationCounters | null> {
+      const result = await pool.query<{
+        upvotes_received: number | string;
+        downvotes_received: number | string;
+        spam_attempts: number | string;
+        songs_skipped: number | string;
+      }>(
+        `select upvotes_received, downvotes_received, spam_attempts, songs_skipped
+         from users
+         where user_id = $1`,
+        [userId],
+      );
+      const row = result.rows[0];
+      return row ? rowToCounters(row) : null;
+    },
+
+    async incrementCounters(
+      userId: string,
+      delta: Partial<ReputationCounters>,
+    ): Promise<ReputationCounters> {
+      const assignments: string[] = [];
+      const values: unknown[] = [userId];
+      for (const key of REPUTATION_COLUMNS) {
+        const amount = delta[key];
+        if (typeof amount === 'number' && amount !== 0) {
+          values.push(amount);
+          const column = REPUTATION_COLUMN_SQL[key];
+          assignments.push(`${column} = ${column} + $${values.length}`);
+        }
+      }
+      const setClause =
+        assignments.length > 0 ? assignments.join(', ') : 'upvotes_received = upvotes_received';
+      const result = await pool.query<{
+        upvotes_received: number | string;
+        downvotes_received: number | string;
+        spam_attempts: number | string;
+        songs_skipped: number | string;
+      }>(
+        `update users set ${setClause}
+         where user_id = $1
+         returning upvotes_received, downvotes_received, spam_attempts, songs_skipped`,
+        values,
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error(`user ${userId} not found`);
+      return rowToCounters(row);
+    },
+
+    async setReputationScore(userId: string, score: number): Promise<void> {
+      await pool.query(`update users set reputation_score = $2 where user_id = $1`, [
+        userId,
+        score,
+      ]);
     },
   };
 }
