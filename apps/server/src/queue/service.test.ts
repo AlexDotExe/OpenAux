@@ -738,6 +738,40 @@ describe('QueueService V1 scoring model + playability gate', () => {
     repo.venue = { ...repo.venue, scoringModel: 'v1' };
   });
 
+  it('ranks with the V1 engine when scoringModel is v1', async () => {
+    repo.activeUserCount = 4; // gate off so this test isolates ranking behavior
+    repo.items.set(
+      'crowd',
+      makeQueueItem({
+        queueItemId: 'crowd',
+        status: 'queued',
+        upvotesCount: 3,
+        downvotesCount: 0,
+        songId: 'trk-crowd',
+      }),
+    );
+    repo.items.set(
+      'paid',
+      makeQueueItem({
+        queueItemId: 'paid',
+        status: 'queued',
+        upvotesCount: 2,
+        downvotesCount: 0,
+        instantVoteCount: 1,
+        songId: 'trk-paid',
+      }),
+    );
+    const { service } = build(
+      repo,
+      new Map([
+        ['trk-crowd', track({ providerTrackId: 'trk-crowd' })],
+        ['trk-paid', track({ providerTrackId: 'trk-paid' })],
+      ]),
+    );
+    const res = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(res.nowPlaying?.queueItemId).toBe('paid');
+  });
+
   it('plays a healthy item at scale under the V1 model', async () => {
     repo.activeUserCount = 20;
     repo.items.set(

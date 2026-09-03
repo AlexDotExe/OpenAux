@@ -290,8 +290,10 @@ export class PostgresQueueRepository implements QueueRepository {
   async getVenueConfig(venueId: VenueId): Promise<VenueConfig | null> {
     const { rows } = await this.pool.query(
       `select venue_id, name, control_mode, music_provider, block_explicit,
-              blocked_genres, blocked_artists, scoring_weights_override, fallback_playlist
-         from venues where venue_id = $1`,
+              blocked_genres, blocked_artists, scoring_weights_override, fallback_playlist,
+              to_jsonb(v)->>'scoring_model' as scoring_model,
+              to_jsonb(v)->'scoring_weights_override_v1' as scoring_weights_override_v1
+         from venues v where venue_id = $1`,
       [venueId],
     );
     const row = rows[0];
@@ -305,6 +307,8 @@ export class PostgresQueueRepository implements QueueRepository {
       blockedGenres: row.blocked_genres ?? [],
       blockedArtists: row.blocked_artists ?? [],
       scoringWeightsOverride: row.scoring_weights_override ?? null,
+      scoringWeightsOverrideV1: row.scoring_weights_override_v1 ?? null,
+      scoringModel: row.scoring_model === 'v1' ? 'v1' : 'v0',
       fallbackPlaylist: Array.isArray(row.fallback_playlist) ? row.fallback_playlist : [],
     };
   }
