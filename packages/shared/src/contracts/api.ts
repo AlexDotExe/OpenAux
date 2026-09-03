@@ -20,13 +20,14 @@
  */
 
 import type {
+  BoostCodeTier,
   MusicProviderId,
   QueueItem,
   Session,
   VenueControlMode,
   VoteDirection,
-} from '../types/domain.js';
-import type { Track } from './music-provider.js';
+} from "../types/domain.js";
+import type { Track } from "./music-provider.js";
 
 // ---------------------------------------------------------------------------
 // Venue owner accounts (venue operator signup/login + venue creation)
@@ -81,22 +82,28 @@ export interface CreateVenueResponse {
  * `boost_type_unavailable` / `payment_gateway_error` — settlement-layer failures.
  */
 export type ApiErrorCode =
-  | 'venue_blocked_artist'
-  | 'venue_blocked_genre'
-  | 'explicit_blocked'
-  | 'duplicate_locked'
-  | 'max_active_requests'
-  | 'request_cooldown'
-  | 'session_invalid'
-  | 'session_expired'
-  | 'insufficient_credits'
-  | 'boost_limit_reached'
-  | 'validation'
-  | 'boost_type_unavailable'
-  | 'payment_gateway_error'
-  | 'not_found'
-  | 'unauthorized'
-  | 'internal';
+  | "venue_blocked_artist"
+  | "venue_blocked_genre"
+  | "explicit_blocked"
+  | "duplicate_locked"
+  | "max_active_requests"
+  | "request_cooldown"
+  | "session_invalid"
+  | "session_expired"
+  | "insufficient_credits"
+  | "boost_limit_reached"
+  | "validation"
+  | "boost_type_unavailable"
+  | "payment_gateway_error"
+  // Boost Code redemption (V1, decision D7).
+  | "boost_code_invalid"
+  | "boost_code_expired"
+  | "boost_code_already_redeemed"
+  // Crowd-skip vote (V1) — the caller already voted to skip the current song.
+  | "already_skip_voted"
+  | "not_found"
+  | "unauthorized"
+  | "internal";
 
 export interface ApiError {
   error: { code: ApiErrorCode; message: string };
@@ -111,6 +118,14 @@ export interface JoinSessionRequest {
   venueQrToken: string;
   /** Omitted for guests; server issues a guest identity. */
   authToken?: string;
+  /**
+   * Presence coordinates (SPEC.md §5 V1 anti-spam). Sensitive: captured only at
+   * join, for the stated purpose of confirming the patron is within the venue
+   * geofence; never stored as precise history. Optional — omitted when the patron
+   * declines the location prompt.
+   */
+  latitude?: number;
+  longitude?: number;
 }
 export interface JoinSessionResponse {
   session: Session;
@@ -150,12 +165,35 @@ export interface CastVoteResponse {
 
 /** POST /api/queue-items/:queueItemId/boosts */
 export interface PurchaseBoostRequest {
-  /** V0 supports priority_boost only; instant_play_vote (V1), super_boost (V2). */
-  boostType: 'priority_boost' | 'instant_play_vote' | 'super_boost';
+  /**
+   * Paid boost applied to this queue item.
+   *  - `priority_boost` — $1, V0 (+1 paid point in the V1 capped model).
+   *  - `instant_play_vote` — Instant Play Vote $3, V1 (+4 paid points); ≈10 votes
+   *    instantly but capped so the crowd can override (SPEC.md §5 V1, decision D4).
+   *  - `super_boost` — $5, V2 (+7 paid points).
+   * Point values live in PAID_BOOST_POINTS (@openaux/shared scoring).
+   */
+  boostType: "priority_boost" | "instant_play_vote" | "super_boost";
 }
 export interface PurchaseBoostResponse {
   queueItem: QueueItem;
   creditBalance: number;
+  /** Paid points this boost contributed (post-cap effect is reflected in queueItem.currentScore). */
+  paidPointsAdded: number;
+}
+
+/**
+ * POST /api/queue-items/:queueItemId/skip-vote — a patron casts a crowd-skip vote
+ * against the currently-playing song (SPEC.md §5 V1). Idempotent per session: a
+ * second vote from the same patron returns `already_skip_voted`.
+ */
+export type CrowdSkipVoteRequest = Record<string, never>;
+export interface CrowdSkipVoteResponse {
+  queueItem: QueueItem;
+  /** Running crowd-skip tally after this vote (mirrors queueItem.crowdSkipVotes). */
+  crowdSkipVotes: number;
+  /** True when this vote pushed the song over the skip threshold and it was skipped. */
+  skipped: boolean;
 }
 
 /** POST /api/credits/purchase */
@@ -164,6 +202,21 @@ export interface PurchaseCreditsRequest {
   paymentMethodToken: string;
 }
 export interface PurchaseCreditsResponse {
+  creditBalance: number;
+}
+
+/**
+ * POST /api/boost-codes/redeem — a patron redeems a venue-issued Boost Code for
+ * credits (SPEC.md §5 V1, decision D7). Writes a `promo_code_redemption` payment
+ * event + a credits_ledger entry; emits the `promo_code_redeemed` analytics event.
+ * Errors: boost_code_invalid / boost_code_expired / boost_code_already_redeemed.
+ */
+export interface RedeemBoostCodeRequest {
+  code: string;
+}
+export interface RedeemBoostCodeResponse {
+  tier: BoostCodeTier;
+  creditsAdded: number;
   creditBalance: number;
 }
 
@@ -190,12 +243,12 @@ export interface UpdateVenueSettingsRequest {
 /** POST /api/venues/:venueId/overrides — venue plays a track immediately/next. */
 export interface VenueOverrideRequest {
   providerTrackId: string;
-  when: 'now' | 'next';
+  when: "now" | "next";
 }
 
 /** POST /api/venues/:venueId/approvals/:queueItemId — suggestion mode. */
 export interface ApprovalRequest {
-  decision: 'approve' | 'reject';
+  decision: "approve" | "reject";
 }
 
 /** POST /api/venues/:venueId/skip — skip the current song. */
@@ -211,6 +264,26 @@ export interface SetAnthemRequest {
   providerTrackId: string;
   promoText: string;
   promoDurationMinutes: number;
+}
+
+/**
+ * POST /api/venues/:venueId/power-hour — activate Power Hour Mode (SPEC.md §5 V1):
+ * boost a genre by `multiplier` for `durationMinutes`. Re-activating replaces the
+ * current window. Emits the `power_hour_activated` analytics + realtime events.
+ */
+export interface ActivatePowerHourRequest {
+  genre: string;
+  multiplier: number;
+  durationMinutes: number;
+}
+
+/**
+ * POST /api/venues/:venueId/boost-codes — venue generates a single-use Boost Code
+ * for a purchase tier (decision D7). credit_value is fixed by the tier server-side;
+ * the code expires 30 min after issue. Emits `boost_code_generated`.
+ */
+export interface GenerateBoostCodeRequest {
+  tier: BoostCodeTier;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +339,45 @@ export interface SetAnthemResponse {
   anthem: AnthemSummary;
 }
 
+/** Active Power Hour window (SPEC.md §5 V1). Null on VenueSummary when inactive. */
+export interface PowerHourState {
+  genre: string;
+  multiplier: number;
+  /** ISO-8601 instant the window ends. */
+  endsAt: string;
+}
+
+/** POST /api/venues/:venueId/power-hour response (201). */
+export interface ActivatePowerHourResponse {
+  powerHour: PowerHourState;
+}
+
+/**
+ * A Boost Code as surfaced to the venue console (decision D7). The `code` string
+ * is shown to the operator to hand to the patron; only ever returned to the venue.
+ */
+export interface BoostCodePublic {
+  boostCodeId: string;
+  code: string;
+  venueId: string;
+  tier: BoostCodeTier;
+  creditValue: number;
+  issuedAt: string;
+  expiresAt: string;
+  redeemedBy: string | null;
+  redeemedAt: string | null;
+}
+
+/** POST /api/venues/:venueId/boost-codes response (201). */
+export interface GenerateBoostCodeResponse {
+  boostCode: BoostCodePublic;
+}
+
+/** GET /api/venues/:venueId/boost-codes response — codes issued by this venue. */
+export interface ListBoostCodesResponse {
+  boostCodes: BoostCodePublic[];
+}
+
 // ---------------------------------------------------------------------------
 // Venue read endpoints
 // ---------------------------------------------------------------------------
@@ -285,6 +397,8 @@ export interface VenueSummary {
   blockExplicit: boolean;
   blockedGenres: string[];
   blockedArtists: string[];
+  /** Active Power Hour window (SPEC.md §5 V1), or null when none is running. */
+  powerHour: PowerHourState | null;
 }
 
 /** GET /api/venues/:venueId/fallback-playlist — current silence-fallback playlist. */

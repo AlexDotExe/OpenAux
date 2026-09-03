@@ -20,35 +20,40 @@ the types.
 
 Full shapes in `api.ts`; this is the route map:
 
-| Method + Path                                      | Purpose                                            |
-| -------------------------------------------------- | -------------------------------------------------- |
-| `POST /api/venue-owners/signup`                    | Create a venue owner, returns bearer token         |
-| `POST /api/venue-owners/login`                     | Owner login, returns bearer token                  |
-| `GET /api/venue-owners/me`                         | Owner: profile + owned venues                      |
-| `POST /api/venues`                                 | Owner: create a venue (returns QR token)           |
-| `POST /api/sessions/join`                          | QR token → venue session (guest or authed)         |
-| `GET /api/venues/:venueId`                         | Public venue summary (name, QR, block settings)    |
-| `GET /api/venues/:venueId/search?q=`               | Track search via venue's provider                  |
-| `GET /api/venues/:venueId/queue`                   | Queue snapshot (nowPlaying / upNext 3 / rest)      |
-| `POST /api/venues/:venueId/requests`               | Request a song (eligibility-gated)                 |
-| `PUT /api/queue-items/:id/vote`                    | Cast/switch vote (idempotent)                      |
-| `DELETE /api/queue-items/:id/vote`                 | Remove vote                                        |
-| `POST /api/queue-items/:id/boosts`                 | Purchase boost (V0: priority_boost)                |
-| `GET /api/queue-items/:id/position`                | Position + ETA + boost preview (monetization UI)   |
-| `POST /api/credits/purchase`                       | Buy credit bundle                                  |
-| `PATCH /api/venues/:venueId/settings`              | Venue: control mode, blocks                        |
-| `POST /api/venues/:venueId/overrides`              | Venue: play track now/next                         |
-| `POST /api/venues/:venueId/approvals/:queueItemId` | Venue: suggestion-mode decision                    |
-| `POST /api/venues/:venueId/skip`                   | Venue: skip current song                           |
-| `GET /api/venues/:venueId/fallback-playlist`       | Venue: read current silence-fallback playlist      |
-| `PUT /api/venues/:venueId/fallback-playlist`       | Venue: silence-fallback playlist                   |
-| `POST /api/venues/:venueId/anthem`                 | Venue: set anthem + promo                          |
-| `POST /api/venues/:venueId/playback/state`         | Console: report playback state / track ended       |
-| `GET /api/venues/:venueId/playback/devices`        | Console: list Spotify Connect devices              |
-| `PUT /api/venues/:venueId/playback/device`         | Console: pick playback device                      |
-| `POST /api/venues/:venueId/spotify/connect`        | Console: start Spotify OAuth, returns authorizeUrl |
-| `GET /api/spotify/callback`                        | Public: Spotify OAuth redirect target              |
-| `GET /api/venues/:venueId/spotify/status`          | Console: Spotify link status                       |
+| Method + Path                                      | Purpose                                                           |
+| -------------------------------------------------- | ----------------------------------------------------------------- |
+| `POST /api/venue-owners/signup`                    | Create a venue owner, returns bearer token                        |
+| `POST /api/venue-owners/login`                     | Owner login, returns bearer token                                 |
+| `GET /api/venue-owners/me`                         | Owner: profile + owned venues                                     |
+| `POST /api/venues`                                 | Owner: create a venue (returns QR token)                          |
+| `POST /api/sessions/join`                          | QR token → venue session (guest or authed)                        |
+| `GET /api/venues/:venueId`                         | Public venue summary (name, QR, block settings)                   |
+| `GET /api/venues/:venueId/search?q=`               | Track search via venue's provider                                 |
+| `GET /api/venues/:venueId/queue`                   | Queue snapshot (nowPlaying / upNext 3 / rest)                     |
+| `POST /api/venues/:venueId/requests`               | Request a song (eligibility-gated)                                |
+| `PUT /api/queue-items/:id/vote`                    | Cast/switch vote (idempotent)                                     |
+| `DELETE /api/queue-items/:id/vote`                 | Remove vote                                                       |
+| `POST /api/queue-items/:id/boosts`                 | Purchase boost (priority_boost / instant_play_vote / super_boost) |
+| `POST /api/queue-items/:id/skip-vote`              | Patron crowd-skip vote for the now-playing song                   |
+| `GET /api/queue-items/:id/position`                | Position + ETA + boost preview (monetization UI)                  |
+| `POST /api/credits/purchase`                       | Buy credit bundle                                                 |
+| `POST /api/boost-codes/redeem`                     | Patron redeems a Boost Code → credits                             |
+| `PATCH /api/venues/:venueId/settings`              | Venue: control mode, blocks                                       |
+| `POST /api/venues/:venueId/overrides`              | Venue: play track now/next                                        |
+| `POST /api/venues/:venueId/approvals/:queueItemId` | Venue: suggestion-mode decision                                   |
+| `POST /api/venues/:venueId/skip`                   | Venue: skip current song                                          |
+| `GET /api/venues/:venueId/fallback-playlist`       | Venue: read current silence-fallback playlist                     |
+| `PUT /api/venues/:venueId/fallback-playlist`       | Venue: silence-fallback playlist                                  |
+| `POST /api/venues/:venueId/anthem`                 | Venue: set anthem + promo                                         |
+| `POST /api/venues/:venueId/power-hour`             | Venue: activate Power Hour Mode (genre boost)                     |
+| `POST /api/venues/:venueId/boost-codes`            | Venue: generate a Boost Code (tiered promo)                       |
+| `GET /api/venues/:venueId/boost-codes`             | Venue: list issued Boost Codes                                    |
+| `POST /api/venues/:venueId/playback/state`         | Console: report playback state / track ended                      |
+| `GET /api/venues/:venueId/playback/devices`        | Console: list Spotify Connect devices                             |
+| `PUT /api/venues/:venueId/playback/device`         | Console: pick playback device                                     |
+| `POST /api/venues/:venueId/spotify/connect`        | Console: start Spotify OAuth, returns authorizeUrl                |
+| `GET /api/spotify/callback`                        | Public: Spotify OAuth redirect target                             |
+| `GET /api/venues/:venueId/spotify/status`          | Console: Spotify link status                                      |
 
 Auth transport (V0): patron calls send `X-Session-Id`; venue-admin calls send
 `X-Venue-Admin-Token` (server currently reads `Authorization: Bearer`); payment
@@ -112,3 +117,49 @@ Realtime channel: `WS /ws/venues/:venueId` — events in `realtime-events.ts`.
     `Authorization: Bearer <owner session token>` (VENUE_ADMIN_TOKEN kept as fallback).
   - `VenueSummary` gains `musicProvider` (the web console can now detect the
     provider from the API instead of `NEXT_PUBLIC_VENUE_MUSIC_PROVIDER`).
+- **2026-09-03** — V1 foundation bump (scoring ↔ schema ↔ domain ↔ api ↔ realtime ↔
+  analytics together). Purely additive and versioned — every V0 export is unchanged.
+  - **Scoring V1 (capped model, SPEC.md §4 V1+)** in `scoring/index.ts`, alongside the
+    untouched V0 engine: `ScoringWeightsV1 { a,b,c,d,e }` + `DEFAULT_V1_WEIGHTS`
+    (a 1.0, b 0.6, c 0.4, d 2.0, e 3.0); `DOWNVOTE_NET_WEIGHT` (0.7); `PaidBoostType`
+    - `PAID_BOOST_POINTS` (priority 1 / instant 4 / super 7, decision D2);
+      `ScoringInputsV1`, `ScoreBreakdownV1`, and `computeQueueRankScoreV1(inputs, weights)`
+      implementing `A·netVotes + B·paidPointsCapped + C·timeBoost − D·skipRisk − E·spam`
+      with `paidPointsCapped = min(paidPoints, paidPointsCap)` (caller supplies the cap).
+      Pure — ageMinutes/skipRisk/spam/cap are all passed in.
+  - **Reputation v1** (`users` + `User`): `reputation_score`, `upvotes_received`,
+    `downvotes_received`, `spam_attempts`, `songs_skipped` (all default 0) ↔
+    `reputationScore`, `upvotesReceived`, `downvotesReceived`, `spamAttempts`,
+    `songsSkipped`.
+  - **Power Hour Mode** (`venues` + `Venue`): `power_hour_genre`,
+    `power_hour_multiplier`, `power_hour_ends_at` ↔ `powerHourGenre`,
+    `powerHourMultiplier`, `powerHourEndsAt` (all null when inactive).
+  - **Location / geofence** (SPEC.md §5 V1, §7 — location is sensitive: captured only
+    at join, purpose-stated, never stored as precise history): `venues` gain
+    `latitude`, `longitude`, `geofence_radius_m` ↔ `Venue.latitude/longitude/geofenceRadiusM`;
+    `sessions` gain `join_latitude`, `join_longitude` ↔ `Session.joinLatitude/joinLongitude`;
+    `JoinSessionRequest` gains optional `latitude`/`longitude`.
+  - **Boost Codes** (decision D7): new `boost_codes` table
+    (`boost_code_id`, `code` unique, `venue_id`, `tier` check beer|cocktail|bottle,
+    `credit_value`, `issued_at`, `expires_at`, `redeemed_by`, `redeemed_at`) ↔
+    `BoostCode` domain type; `BoostCodeTier = 'beer'|'cocktail'|'bottle'` union +
+    fixed `BOOST_CODE_TIER_CREDITS` map (beer 1 / cocktail 2 / bottle 10).
+  - **Crowd Skip** (`queue_items` + `QueueItem`): `crowd_skip_votes` (default 0) ↔
+    `crowdSkipVotes`.
+  - **API additions** (`api.ts`): `ApiErrorCode` gains `boost_code_invalid`,
+    `boost_code_expired`, `boost_code_already_redeemed`, `already_skip_voted`.
+    `PurchaseBoostResponse` gains `paidPointsAdded` and its doc now documents
+    `instant_play_vote` as a live V1 boostType. New shapes: `CrowdSkipVoteRequest`
+    /`CrowdSkipVoteResponse` (POST `/api/queue-items/:id/skip-vote`),
+    `RedeemBoostCodeRequest`/`Response` (POST `/api/boost-codes/redeem`),
+    `ActivatePowerHourRequest`/`Response` + `PowerHourState` (POST
+    `/api/venues/:venueId/power-hour`), `GenerateBoostCodeRequest`/`Response`,
+    `ListBoostCodesResponse`, `BoostCodePublic` (POST/GET
+    `/api/venues/:venueId/boost-codes`). `VenueSummary` gains `powerHour: PowerHourState | null`.
+  - **Realtime** (`realtime-events.ts`): `PowerHourActivatedEvent`,
+    `PowerHourEndedEvent`, `CrowdSkipVoteUpdateEvent`, `SongCrowdSkippedEvent`,
+    all added to `RealtimeEvent`.
+  - **Analytics** (`analytics-events.ts`): added `crowd_skip_vote`,
+    `song_crowd_skipped`, `power_hour_activated`, `boost_code_generated`,
+    `reputation_updated` to `ANALYTICS_EVENT_TYPES`. Instant Play Vote purchase reuses
+    `boost_purchased`; Boost Code redemption reuses `promo_code_redeemed`.
