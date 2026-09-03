@@ -27,7 +27,9 @@ import { AnnouncementBanner } from '../../../components/patron/AnnouncementBanne
 import { MySongCard } from '../../../components/patron/MySongCard';
 import { NowPlayingCard } from '../../../components/patron/NowPlayingCard';
 import { QueueLists } from '../../../components/patron/QueueLists';
+import { RedeemBoostCodePanel } from '../../../components/patron/RedeemBoostCodePanel';
 import { RequestSongPanel } from '../../../components/patron/RequestSongPanel';
+import { PowerHourBanner } from '../../../components/PowerHourBanner';
 
 export default function PatronQueuePage() {
   const params = useParams<{ venueId: string }>();
@@ -40,6 +42,9 @@ export default function PatronQueuePage() {
   const [voteError, setVoteError] = useState<string | null>(null);
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [skipVoting, setSkipVoting] = useState(false);
+  const [skipVoted, setSkipVoted] = useState(false);
+  const [skipVoteError, setSkipVoteError] = useState<string | null>(null);
 
   const channel = useVenueChannel(venueId ?? null);
 
@@ -116,6 +121,29 @@ export default function PatronQueuePage() {
     [myVotes, session, auth],
   );
 
+  const nowPlayingId =
+    channel.nowPlaying?.queueItem?.queueItemId ?? snapshot?.nowPlaying?.queueItemId ?? null;
+
+  // Reset the "already voted to skip" flag whenever a new song starts playing.
+  useEffect(() => {
+    setSkipVoted(false);
+    setSkipVoteError(null);
+  }, [nowPlayingId]);
+
+  const handleSkipVote = useCallback(async () => {
+    if (!session || !nowPlayingId) return;
+    setSkipVoting(true);
+    setSkipVoteError(null);
+    try {
+      await getApiClient().crowdSkipVote(nowPlayingId, { sessionId: session.sessionId });
+      setSkipVoted(true);
+    } catch (e) {
+      setSkipVoteError(e instanceof ApiClientError ? e.message : 'Skip vote failed — try again.');
+    } finally {
+      setSkipVoting(false);
+    }
+  }, [session, nowPlayingId]);
+
   if (session === undefined) {
     return <main className="page">Loading…</main>;
   }
@@ -167,13 +195,39 @@ export default function PatronQueuePage() {
         onDismiss={channel.dismissAnnouncement}
       />
 
+      {channel.powerHour && (
+        <PowerHourBanner
+          genre={channel.powerHour.genre}
+          multiplier={channel.powerHour.multiplier}
+          endsAt={channel.powerHour.endsAt}
+          bannerText={channel.powerHour.bannerText}
+        />
+      )}
+
       {channel.sessionExpired && (
         <div className="banner banner--venue_message">
           Your session expired — <Link href="/patron/join">rejoin</Link> to keep voting.
         </div>
       )}
 
-      <NowPlayingCard queueItem={nowPlayingItem} djAttribution={djAttribution} />
+      <NowPlayingCard
+        queueItem={nowPlayingItem}
+        djAttribution={djAttribution}
+        crowdSkipVotes={
+          channel.crowdSkip && channel.crowdSkip.queueItemId === nowPlayingItem?.queueItemId
+            ? channel.crowdSkip.crowdSkipVotes
+            : (nowPlayingItem?.crowdSkipVotes ?? 0)
+        }
+        crowdSkipThreshold={
+          channel.crowdSkip && channel.crowdSkip.queueItemId === nowPlayingItem?.queueItemId
+            ? channel.crowdSkip.threshold
+            : null
+        }
+        onSkipVote={nowPlayingItem ? handleSkipVote : undefined}
+        skipVoting={skipVoting}
+        skipVoted={skipVoted}
+        skipVoteError={skipVoteError}
+      />
 
       {myItems.map((item) => (
         <MySongCard
@@ -193,6 +247,8 @@ export default function PatronQueuePage() {
           onRequested={() => setRefreshToken((n) => n + 1)}
         />
       </div>
+
+      <RedeemBoostCodePanel auth={auth} onRedeemed={setCreditBalance} />
 
       {voteError && <p className="error-text">{voteError}</p>}
 

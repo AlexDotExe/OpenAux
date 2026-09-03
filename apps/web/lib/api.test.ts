@@ -126,6 +126,75 @@ describe('HttpApiClient', () => {
     expect(res.devices[0]!.providerDeviceId).toBe('d1');
   });
 
+  it('POST /skip-vote sends an empty body and returns the tally', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ queueItem: { queueItemId: 'qi-1' }, crowdSkipVotes: 3, skipped: false }),
+    );
+    const client = new HttpApiClient();
+
+    const res = await client.crowdSkipVote('qi-1', { sessionId: 's1' });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/api/queue-items/qi-1/skip-vote');
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-Session-Id']).toBe('s1');
+    expect(res.crowdSkipVotes).toBe(3);
+  });
+
+  it('POST /boost-codes/redeem sends the code and returns credits added', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ tier: 'beer', creditsAdded: 1, creditBalance: 6 }),
+    );
+    const client = new HttpApiClient();
+
+    const res = await client.redeemBoostCode({ code: 'BEE-123' }, { sessionId: 's1' });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/api/boost-codes/redeem');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ code: 'BEE-123' });
+    expect(res.creditBalance).toBe(6);
+  });
+
+  it('POST /power-hour sends genre/multiplier/duration', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ powerHour: { genre: 'hip-hop', multiplier: 2, endsAt: 'x' } }),
+    );
+    const client = new HttpApiClient();
+
+    const res = await client.activatePowerHour(
+      'venue-1',
+      { genre: 'hip-hop', multiplier: 2, durationMinutes: 15 },
+      { venueAdminToken: 'tok' },
+    );
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/api/venues/venue-1/power-hour');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ genre: 'hip-hop', multiplier: 2, durationMinutes: 15 });
+    expect(res.powerHour.genre).toBe('hip-hop');
+  });
+
+  it('POST + GET /boost-codes generate and list codes', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ boostCode: { boostCodeId: 'bc-1', code: 'BEE-1', tier: 'beer' } }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ boostCodes: [{ boostCodeId: 'bc-1', code: 'BEE-1', tier: 'beer' }] }),
+    );
+    const client = new HttpApiClient();
+
+    const gen = await client.generateBoostCode('venue-1', { tier: 'beer' }, { venueAdminToken: 'tok' });
+    expect(fetchMock.mock.calls[0]![0]).toContain('/api/venues/venue-1/boost-codes');
+    expect(fetchMock.mock.calls[0]![1].method).toBe('POST');
+    expect(gen.boostCode.code).toBe('BEE-1');
+
+    const list = await client.listBoostCodes('venue-1', { venueAdminToken: 'tok' });
+    expect(fetchMock.mock.calls[1]![0]).toContain('/api/venues/venue-1/boost-codes');
+    expect((fetchMock.mock.calls[1]![1].method ?? 'GET')).toBe('GET');
+    expect(list.boostCodes).toHaveLength(1);
+  });
+
   it('PUT /playback/device sends the chosen device id', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ playbackDeviceId: 'd1' }));
     const client = new HttpApiClient();

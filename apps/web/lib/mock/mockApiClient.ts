@@ -13,17 +13,26 @@
  */
 
 import {
+  BOOST_CODE_TIER_CREDITS,
   DEFAULT_V0_WEIGHTS,
   computeQueueRankScore,
   rankQueue,
+  type ActivatePowerHourRequest,
+  type ActivatePowerHourResponse,
   type ApiErrorCode,
   type ApprovalRequest,
+  type BoostCodePublic,
   type CastVoteRequest,
   type CastVoteResponse,
   type CreateRequestRequest,
   type CreateRequestResponse,
+  type CrowdSkipVoteResponse,
+  type GenerateBoostCodeRequest,
+  type GenerateBoostCodeResponse,
   type JoinSessionRequest,
   type JoinSessionResponse,
+  type ListBoostCodesResponse,
+  type PowerHourState,
   type PurchaseBoostRequest,
   type PurchaseBoostResponse,
   type PurchaseCreditsRequest,
@@ -31,6 +40,8 @@ import {
   type QueueItem,
   type QueuePositionResponse,
   type QueueSnapshot,
+  type RedeemBoostCodeRequest,
+  type RedeemBoostCodeResponse,
   type ReportPlaybackStateRequest,
   type ReportPlaybackStateResponse,
   type SearchResponse,
@@ -62,6 +73,10 @@ const CREDIT_BUNDLES: Record<string, number> = {
   bundle_12: 12,
   bundle_25: 25,
 };
+/** Crowd-skip votes needed to skip the now-playing song in the demo (SPEC.md §5 V1). */
+const CROWD_SKIP_THRESHOLD = 5;
+/** Boost Codes expire 30 min after issue (decision D7). */
+const BOOST_CODE_TTL_MS = 30 * 60 * 1000;
 
 let idSeq = 0;
 function uid(prefix: string): string {
@@ -96,6 +111,12 @@ interface Store {
   /** queueItemId -> set of "userId:boostType" who've spent that boost (1 per song per user). */
   boostsGivenByUser: Map<string, Set<string>>;
   overrideNextItemId: string | null;
+  /** queueItemId -> set of userIds who've cast a crowd-skip vote (1 per song per user). */
+  skipVotesByUser: Map<string, Set<string>>;
+  /** Active Power Hour window (SPEC.md §5 V1), or null when none is running. */
+  powerHour: PowerHourState | null;
+  /** Boost Codes issued by this venue (decision D7), newest last. */
+  boostCodes: BoostCodePublic[];
 }
 
 function seedQueueItem(
@@ -194,6 +215,21 @@ function buildSnapshot(store: Store): QueueSnapshot {
   const rest = shuffle([...ranked.slice(3), ...pendingApproval]);
 
   return { nowPlaying: store.nowPlaying, upNext, rest };
+}
+
+/** Public venue summary reflecting the current Power Hour window (SPEC.md §5 V1). */
+function buildVenueSummary(store: Store): VenueSummary {
+  return {
+    venueId: store.venue.venueId,
+    name: store.venue.name,
+    musicProvider: store.venue.musicProvider,
+    controlMode: store.venue.controlMode,
+    qrToken: store.venue.qrToken,
+    blockExplicit: store.venue.blockExplicit,
+    blockedGenres: store.venue.blockedGenres,
+    blockedArtists: store.venue.blockedArtists,
+    powerHour: store.powerHour,
+  };
 }
 
 function publishQueueUpdated(store: Store): void {
@@ -365,6 +401,9 @@ function createStore(): Store {
     votes: new Map(),
     boostsGivenByUser: new Map(),
     overrideNextItemId: null,
+    skipVotesByUser: new Map(),
+    powerHour: null,
+    boostCodes: [],
   };
 
   store.nowPlaying = seedQueueItem(store, {
@@ -450,36 +489,14 @@ export function createMockApiClient(): ApiClient {
     async venueOwnerMe() {
       return {
         owner: mockOwner,
-        venues: [
-          {
-            venueId: store.venue.venueId,
-            name: store.venue.name,
-            musicProvider: store.venue.musicProvider,
-            controlMode: store.venue.controlMode,
-            qrToken: store.venue.qrToken,
-            blockExplicit: store.venue.blockExplicit,
-            blockedGenres: store.venue.blockedGenres,
-            blockedArtists: store.venue.blockedArtists,
-            powerHour: null,
-          },
-        ],
+        venues: [buildVenueSummary(store)],
       };
     },
 
     async createVenue(req) {
       // Mock mode has a single fixed venue; echo it back with the requested name.
       return {
-        venue: {
-          venueId: store.venue.venueId,
-          name: req.name,
-          musicProvider: req.musicProvider,
-          controlMode: store.venue.controlMode,
-          qrToken: store.venue.qrToken,
-          blockExplicit: store.venue.blockExplicit,
-          blockedGenres: store.venue.blockedGenres,
-          blockedArtists: store.venue.blockedArtists,
-          powerHour: null,
-        },
+        venue: { ...buildVenueSummary(store), name: req.name, musicProvider: req.musicProvider },
       };
     },
 
@@ -522,17 +539,7 @@ export function createMockApiClient(): ApiClient {
 
     async getVenue(venueId: string): Promise<VenueSummary> {
       if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
-      return {
-        venueId: store.venue.venueId,
-        name: store.venue.name,
-        musicProvider: store.venue.musicProvider,
-        controlMode: store.venue.controlMode,
-        qrToken: store.venue.qrToken,
-        blockExplicit: store.venue.blockExplicit,
-        blockedGenres: store.venue.blockedGenres,
-        blockedArtists: store.venue.blockedArtists,
-        powerHour: null,
-      };
+      return buildVenueSummary(store);
     },
 
     async search(venueId: string, query: string): Promise<SearchResponse> {
@@ -750,6 +757,62 @@ export function createMockApiClient(): ApiClient {
       return { creditBalance: balance };
     },
 
+    async crowdSkipVote(queueItemId: string, auth: AuthContext): Promise<CrowdSkipVoteResponse> {
+      const session = requireSession(store, auth);
+      const item = findItemOrThrow(store, queueItemId);
+
+      let voters = store.skipVotesByUser.get(queueItemId);
+      if (!voters) {
+        voters = new Set();
+        store.skipVotesByUser.set(queueItemId, voters);
+      }
+      if (voters.has(session.userId)) {
+        err('already_skip_voted', 'You already voted to skip this song.');
+      }
+      voters.add(session.userId);
+      item.crowdSkipVotes = voters.size;
+
+      mockEventBus.publish(store.venue.venueId, {
+        type: 'crowd_skip_vote_update',
+        payload: {
+          queueItemId: item.queueItemId,
+          crowdSkipVotes: item.crowdSkipVotes,
+          threshold: CROWD_SKIP_THRESHOLD,
+        },
+      });
+
+      const skipped = item.crowdSkipVotes >= CROWD_SKIP_THRESHOLD && item.status === 'playing';
+      if (skipped) {
+        mockEventBus.publish(store.venue.venueId, {
+          type: 'song_crowd_skipped',
+          payload: { queueItemId: item.queueItemId, crowdSkipVotes: item.crowdSkipVotes },
+        });
+        advanceQueue(store, 'skipped');
+      }
+
+      return { queueItem: item, crowdSkipVotes: item.crowdSkipVotes, skipped };
+    },
+
+    async redeemBoostCode(
+      req: RedeemBoostCodeRequest,
+      auth: AuthContext,
+    ): Promise<RedeemBoostCodeResponse> {
+      const session = requireSession(store, auth);
+      const code = store.boostCodes.find((c) => c.code === req.code.trim().toUpperCase());
+      if (!code) err('boost_code_invalid', 'That code is not valid.');
+      if (code.redeemedBy) err('boost_code_already_redeemed', 'That code has already been used.');
+      if (Date.parse(code.expiresAt) <= Date.now()) {
+        err('boost_code_expired', 'That code has expired.');
+      }
+
+      code.redeemedBy = session.userId;
+      code.redeemedAt = new Date().toISOString();
+      const balance = (store.creditBalances.get(session.userId) ?? 0) + code.creditValue;
+      store.creditBalances.set(session.userId, balance);
+
+      return { tier: code.tier, creditsAdded: code.creditValue, creditBalance: balance };
+    },
+
     async updateVenueSettings(
       venueId: string,
       req: UpdateVenueSettingsRequest,
@@ -883,6 +946,87 @@ export function createMockApiClient(): ApiClient {
           ttlSeconds: 20,
         },
       });
+    },
+
+    async activatePowerHour(
+      venueId: string,
+      req: ActivatePowerHourRequest,
+      auth: AuthContext,
+    ): Promise<ActivatePowerHourResponse> {
+      if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
+      requireVenueAdmin(store, auth);
+      if (!req.genre.trim()) err('validation', 'Pick a genre to boost.');
+      if (req.multiplier <= 1) err('validation', 'Multiplier must be greater than 1.');
+      if (req.durationMinutes <= 0) err('validation', 'Duration must be positive.');
+
+      const endsAt = new Date(Date.now() + req.durationMinutes * 60 * 1000).toISOString();
+      const powerHour: PowerHourState = {
+        genre: req.genre.trim(),
+        multiplier: req.multiplier,
+        endsAt,
+      };
+      store.powerHour = powerHour;
+
+      mockEventBus.publish(store.venue.venueId, {
+        type: 'power_hour_activated',
+        payload: {
+          genre: powerHour.genre,
+          multiplier: powerHour.multiplier,
+          endsAt,
+          bannerText: `🔥 ${powerHour.genre} boosted ×${powerHour.multiplier}`,
+        },
+      });
+
+      // Auto-end the window for the demo so the banner clears itself.
+      setTimeout(
+        () => {
+          if (store.powerHour && store.powerHour.endsAt === endsAt) {
+            const endedGenre = store.powerHour.genre;
+            store.powerHour = null;
+            mockEventBus.publish(store.venue.venueId, {
+              type: 'power_hour_ended',
+              payload: { genre: endedGenre },
+            });
+          }
+        },
+        Math.max(0, req.durationMinutes * 60 * 1000),
+      );
+
+      return { powerHour };
+    },
+
+    async generateBoostCode(
+      venueId: string,
+      req: GenerateBoostCodeRequest,
+      auth: AuthContext,
+    ): Promise<GenerateBoostCodeResponse> {
+      if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
+      requireVenueAdmin(store, auth);
+
+      const now = Date.now();
+      const boostCode: BoostCodePublic = {
+        boostCodeId: uid('bc'),
+        code: `${req.tier.slice(0, 3).toUpperCase()}-${Math.random()
+          .toString(36)
+          .slice(2, 7)
+          .toUpperCase()}`,
+        venueId: store.venue.venueId,
+        tier: req.tier,
+        creditValue: BOOST_CODE_TIER_CREDITS[req.tier],
+        issuedAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + BOOST_CODE_TTL_MS).toISOString(),
+        redeemedBy: null,
+        redeemedAt: null,
+      };
+      store.boostCodes.push(boostCode);
+      return { boostCode };
+    },
+
+    async listBoostCodes(venueId: string, auth: AuthContext): Promise<ListBoostCodesResponse> {
+      if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
+      requireVenueAdmin(store, auth);
+      // Newest first for the console list.
+      return { boostCodes: [...store.boostCodes].reverse() };
     },
 
     async spotifyStatus(venueId, auth) {

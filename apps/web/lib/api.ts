@@ -24,14 +24,20 @@
  */
 
 import type {
+  ActivatePowerHourRequest,
+  ActivatePowerHourResponse,
   ApiErrorCode,
   ApprovalRequest,
   CastVoteRequest,
   CastVoteResponse,
   CreateRequestRequest,
   CreateRequestResponse,
+  CrowdSkipVoteResponse,
+  GenerateBoostCodeRequest,
+  GenerateBoostCodeResponse,
   JoinSessionRequest,
   JoinSessionResponse,
+  ListBoostCodesResponse,
   ListPlaybackDevicesResponse,
   PurchaseBoostRequest,
   PurchaseBoostResponse,
@@ -39,6 +45,8 @@ import type {
   PurchaseCreditsResponse,
   QueuePositionResponse,
   QueueSnapshot,
+  RedeemBoostCodeRequest,
+  RedeemBoostCodeResponse,
   ReportPlaybackStateRequest,
   ReportPlaybackStateResponse,
   CreateVenueRequest,
@@ -105,6 +113,13 @@ export interface ApiClient {
   ): Promise<PurchaseBoostResponse>;
   getPosition(queueItemId: string, auth: AuthContext): Promise<QueuePositionResponse>;
   purchaseCredits(req: PurchaseCreditsRequest, auth: AuthContext): Promise<PurchaseCreditsResponse>;
+  /** Patron crowd-skip vote against the now-playing song (V1). Idempotent per session. */
+  crowdSkipVote(queueItemId: string, auth: AuthContext): Promise<CrowdSkipVoteResponse>;
+  /** Patron redeems a venue-issued Boost Code for credits (V1, decision D7). */
+  redeemBoostCode(
+    req: RedeemBoostCodeRequest,
+    auth: AuthContext,
+  ): Promise<RedeemBoostCodeResponse>;
   updateVenueSettings(
     venueId: string,
     req: UpdateVenueSettingsRequest,
@@ -124,6 +139,20 @@ export interface ApiClient {
     auth: AuthContext,
   ): Promise<void>;
   setAnthem(venueId: string, req: SetAnthemRequest, auth: AuthContext): Promise<void>;
+  /** Venue activates Power Hour Mode — genre boost for N minutes (V1). */
+  activatePowerHour(
+    venueId: string,
+    req: ActivatePowerHourRequest,
+    auth: AuthContext,
+  ): Promise<ActivatePowerHourResponse>;
+  /** Venue generates a single-use Boost Code for a purchase tier (V1, decision D7). */
+  generateBoostCode(
+    venueId: string,
+    req: GenerateBoostCodeRequest,
+    auth: AuthContext,
+  ): Promise<GenerateBoostCodeResponse>;
+  /** Venue lists the Boost Codes it has issued (V1, decision D7). */
+  listBoostCodes(venueId: string, auth: AuthContext): Promise<ListBoostCodesResponse>;
   /**
    * Console reports current playback state / track end (Apple venues via
    * MusicKit; the Spotify poller's client). `auth.venueAdminToken` doubles as
@@ -271,6 +300,17 @@ export class HttpApiClient implements ApiClient {
     return request('/api/credits/purchase', { method: 'POST', body: req, auth });
   }
 
+  crowdSkipVote(queueItemId: string, auth: AuthContext): Promise<CrowdSkipVoteResponse> {
+    return request(`/api/queue-items/${queueItemId}/skip-vote`, { method: 'POST', body: {}, auth });
+  }
+
+  redeemBoostCode(
+    req: RedeemBoostCodeRequest,
+    auth: AuthContext,
+  ): Promise<RedeemBoostCodeResponse> {
+    return request('/api/boost-codes/redeem', { method: 'POST', body: req, auth });
+  }
+
   updateVenueSettings(
     venueId: string,
     req: UpdateVenueSettingsRequest,
@@ -310,6 +350,26 @@ export class HttpApiClient implements ApiClient {
 
   setAnthem(venueId: string, req: SetAnthemRequest, auth: AuthContext): Promise<void> {
     return request(`/api/venues/${venueId}/anthem`, { method: 'POST', body: req, auth });
+  }
+
+  activatePowerHour(
+    venueId: string,
+    req: ActivatePowerHourRequest,
+    auth: AuthContext,
+  ): Promise<ActivatePowerHourResponse> {
+    return request(`/api/venues/${venueId}/power-hour`, { method: 'POST', body: req, auth });
+  }
+
+  generateBoostCode(
+    venueId: string,
+    req: GenerateBoostCodeRequest,
+    auth: AuthContext,
+  ): Promise<GenerateBoostCodeResponse> {
+    return request(`/api/venues/${venueId}/boost-codes`, { method: 'POST', body: req, auth });
+  }
+
+  listBoostCodes(venueId: string, auth: AuthContext): Promise<ListBoostCodesResponse> {
+    return request(`/api/venues/${venueId}/boost-codes`, { auth });
   }
 
   reportPlaybackState(
