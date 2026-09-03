@@ -8,6 +8,8 @@
  */
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type {
+  BoostCode,
+  BoostCodeTier,
   MusicProvider,
   MusicProviderId,
   PlayabilityState,
@@ -88,6 +90,47 @@ export interface AnthemConfig {
   promoDurationMinutes: number;
 }
 
+/** Persisted Power Hour window (SPEC.md §5 V1) — the raw venues.power_hour_* columns. */
+export interface PowerHourRecord {
+  genre: string;
+  multiplier: number;
+  endsAt: Date;
+}
+
+/** Fields to persist for a freshly minted Boost Code (decision D7); code+creditValue server-set. */
+export interface NewBoostCode {
+  code: string;
+  venueId: VenueId;
+  tier: BoostCodeTier;
+  creditValue: number;
+  issuedAt: Date;
+  expiresAt: Date;
+}
+
+/**
+ * Thrown by BoostCodeRepository.insert when the generated `code` collides with
+ * an existing row (unique violation). The generation route regenerates and
+ * retries a bounded number of times.
+ */
+export class BoostCodeConflictError extends Error {
+  constructor() {
+    super('boost code collision');
+    this.name = 'BoostCodeConflictError';
+  }
+}
+
+/**
+ * Boost Code persistence seam (decision D7). WS4 owns generation + listing
+ * only; WS5 payments owns redemption (the redeemed_by/redeemed_at UPDATE), so
+ * this interface deliberately exposes no redeem method.
+ */
+export interface BoostCodeRepository {
+  /** Insert a new single-use code. Throws BoostCodeConflictError on a `code` unique violation. */
+  insert(input: NewBoostCode): Promise<BoostCode>;
+  /** All codes issued by a venue, newest first. */
+  listByVenue(venueId: VenueId): Promise<BoostCode[]>;
+}
+
 /** Repository seam over the shared Postgres pool (apps/server/src/db.ts) — swappable for tests. */
 export interface VenueRepository {
   getSettings(venueId: VenueId): Promise<VenueSettingsRecord | null>;
@@ -129,12 +172,20 @@ export interface VenueRepository {
   setAnthem(venueId: VenueId, anthem: AnthemConfig): Promise<void>;
   getAnthem(venueId: VenueId): Promise<AnthemConfig | null>;
 
+  /** Activate/replace the Power Hour window (SPEC.md §5 V1); writes venues.power_hour_*. */
+  setPowerHour(venueId: VenueId, record: PowerHourRecord): Promise<void>;
+  /** Raw stored window, or null when no columns are set. Used for read-time expiry checks. */
+  getPowerHour(venueId: VenueId): Promise<PowerHourRecord | null>;
+  /** Null out venues.power_hour_* once a window has elapsed (lazy expiry on read). */
+  clearPowerHour(venueId: VenueId): Promise<void>;
+
   getUserDisplayName(userId: UserId): Promise<string | null>;
 }
 
 /** Shared plumbing every route handler module needs. */
 export interface VenueRouteContext {
   repository: VenueRepository;
+  boostCodeRepository: BoostCodeRepository;
   analytics: AnalyticsSink;
   queueControl: QueueControl;
   broadcaster: Broadcaster;

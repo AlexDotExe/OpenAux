@@ -11,7 +11,13 @@ import type {
   VenueId,
   VenueSummary,
 } from '@openaux/shared';
-import type { AnthemConfig, VenueRepository, VenueSettingsRecord } from '../types.js';
+import { powerHourStateAt } from '../power-hour-logic.js';
+import type {
+  AnthemConfig,
+  PowerHourRecord,
+  VenueRepository,
+  VenueSettingsRecord,
+} from '../types.js';
 
 /** In-memory VenueRepository for tests — no live DB required. */
 export class FakeVenueRepository implements VenueRepository {
@@ -22,6 +28,7 @@ export class FakeVenueRepository implements VenueRepository {
   fallbackPlaylists = new Map<VenueId, string[]>();
   displayNames = new Map<UserId, string>();
   venueActors = new Map<VenueId, UserId>();
+  powerHours = new Map<VenueId, PowerHourRecord>();
 
   seedVenue(
     venueId: VenueId,
@@ -59,6 +66,7 @@ export class FakeVenueRepository implements VenueRepository {
   async getVenueSummary(venueId: VenueId): Promise<VenueSummary | null> {
     const settings = this.settings.get(venueId);
     if (!settings) return null;
+    const record = this.powerHours.get(venueId) ?? null;
     return {
       venueId,
       name: 'Test Venue',
@@ -68,7 +76,7 @@ export class FakeVenueRepository implements VenueRepository {
       blockExplicit: settings.blockExplicit,
       blockedGenres: settings.blockedGenres,
       blockedArtists: settings.blockedArtists,
-      powerHour: null,
+      powerHour: record ? powerHourStateAt(record, new Date()) : null,
     };
   }
 
@@ -168,6 +176,18 @@ export class FakeVenueRepository implements VenueRepository {
 
   async getAnthem(venueId: VenueId): Promise<AnthemConfig | null> {
     return this.anthems.get(venueId) ?? null;
+  }
+
+  async setPowerHour(venueId: VenueId, record: PowerHourRecord): Promise<void> {
+    this.powerHours.set(venueId, record);
+  }
+
+  async getPowerHour(venueId: VenueId): Promise<PowerHourRecord | null> {
+    return this.powerHours.get(venueId) ?? null;
+  }
+
+  async clearPowerHour(venueId: VenueId): Promise<void> {
+    this.powerHours.delete(venueId);
   }
 
   async getUserDisplayName(userId: UserId): Promise<string | null> {
