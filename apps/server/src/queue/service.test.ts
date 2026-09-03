@@ -58,9 +58,28 @@ class FakeRepo implements QueueRepository {
   playedCount = 0;
   recordRequestCalls = 0;
   forcedNextByVenue = new Map<string, string>();
+  activeUserCount = 0;
+  crowdSkipVoters = new Map<string, Set<string>>();
 
   private key(qi: string, u: string) {
     return `${qi}::${u}`;
+  }
+
+  async getActiveUserCount() {
+    return this.activeUserCount;
+  }
+  async hasCrowdSkipVoted(qi: string, u: string) {
+    return this.crowdSkipVoters.get(qi)?.has(u) ?? false;
+  }
+  async recordCrowdSkipVote(qi: string, u: string) {
+    const voters = this.crowdSkipVoters.get(qi) ?? new Set<string>();
+    voters.add(u);
+    this.crowdSkipVoters.set(qi, voters);
+    const item = this.items.get(qi);
+    if (!item) throw new Error('missing item');
+    const updated: QueueItem = { ...item, crowdSkipVotes: item.crowdSkipVotes + 1 };
+    this.items.set(qi, updated);
+    return updated;
   }
 
   async getVenueConfig() {
@@ -643,5 +662,132 @@ describe('QueueService.playNext (forced-pick priority)', () => {
       name: 'QueueError',
       code: 'validation',
     });
+  });
+});
+
+describe('QueueService.castCrowdSkipVote (crowd-voted skip)', () => {
+  let repo: FakeRepo;
+  beforeEach(() => {
+    repo = new FakeRepo();
+  });
+
+  it('increments the tally and emits crowd_skip_vote + crowd_skip_vote_update below threshold', async () => {
+    repo.activeUserCount = 10; // threshold = 5
+    repo.items.set('cur', makeQueueItem({ queueItemId: 'cur', status: 'playing' }));
+    const { service, events, broadcasts } = build(repo, new Map());
+
+    const res = await service.castCrowdSkipVote({ queueItemId: 'cur', userId: 'u1' });
+
+    expect(res.crowdSkipVotes).toBe(1);
+    expect(res.skipped).toBe(false);
+    expect(events.map((e) => e.eventType)).toContain('crowd_skip_vote');
+    const update = broadcasts.find(([, e]) => e.type === 'crowd_skip_vote_update');
+    expect(update?.[1]).toMatchObject({
+      type: 'crowd_skip_vote_update',
+      payload: { queueItemId: 'cur', crowdSkipVotes: 1, threshold: 5 },
+    });
+  });
+
+  it('is idempotent per user — a repeat vote throws already_skip_voted', async () => {
+    repo.activeUserCount = 10;
+    repo.items.set('cur', makeQueueItem({ queueItemId: 'cur', status: 'playing' }));
+    const { service } = build(repo, new Map());
+
+    await service.castCrowdSkipVote({ queueItemId: 'cur', userId: 'u1' });
+    await expect(
+      service.castCrowdSkipVote({ queueItemId: 'cur', userId: 'u1' }),
+    ).rejects.toMatchObject({ name: 'QueueError', code: 'already_skip_voted' });
+  });
+
+  it('skips the song when the tally crosses the threshold (song_crowd_skipped + song_skipped, advances)', async () => {
+    repo.activeUserCount = 4; // threshold floor = 3
+    repo.items.set('cur', makeQueueItem({ queueItemId: 'cur', status: 'playing' }));
+    const { service, events, broadcasts } = build(repo, new Map());
+
+    await service.castCrowdSkipVote({ queueItemId: 'cur', userId: 'u1' });
+    await service.castCrowdSkipVote({ queueItemId: 'cur', userId: 'u2' });
+    const res = await service.castCrowdSkipVote({ queueItemId: 'cur', userId: 'u3' });
+
+    expect(res.skipped).toBe(true);
+    expect(events.some((e) => e.eventType === 'song_crowd_skipped')).toBe(true);
+    expect(events.some((e) => e.eventType === 'song_skipped')).toBe(true);
+    expect(broadcasts.some(([, e]) => e.type === 'song_crowd_skipped')).toBe(true);
+    expect(repo.items.get('cur')?.status).toBe('skipped');
+  });
+
+  it('rejects a crowd-skip vote against an item that is not now-playing', async () => {
+    repo.items.set('q', makeQueueItem({ queueItemId: 'q', status: 'queued' }));
+    const { service } = build(repo, new Map());
+    await expect(service.castCrowdSkipVote({ queueItemId: 'q', userId: 'u1' })).rejects.toMatchObject(
+      { name: 'QueueError', code: 'validation' },
+    );
+  });
+
+  it('throws not_found for an unknown queue item', async () => {
+    const { service } = build(repo, new Map());
+    await expect(
+      service.castCrowdSkipVote({ queueItemId: 'nope', userId: 'u1' }),
+    ).rejects.toMatchObject({ name: 'QueueError', code: 'not_found' });
+  });
+});
+
+describe('QueueService V1 scoring model + playability gate', () => {
+  let repo: FakeRepo;
+  beforeEach(() => {
+    repo = new FakeRepo();
+    repo.venue = { ...repo.venue, scoringModel: 'v1' };
+  });
+
+  it('plays a healthy item at scale under the V1 model', async () => {
+    repo.activeUserCount = 20;
+    repo.items.set(
+      'good',
+      makeQueueItem({
+        queueItemId: 'good',
+        status: 'queued',
+        upvotesCount: 8,
+        downvotesCount: 2,
+        songId: 'trk-good',
+      }),
+    );
+    const { service } = build(repo, new Map([['trk-good', track({ providerTrackId: 'trk-good' })]]));
+    const res = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(res.nowPlaying?.queueItemId).toBe('good');
+  });
+
+  it('gates a low-approval top item at scale and falls back to the venue playlist (never silence)', async () => {
+    repo.activeUserCount = 20;
+    repo.venue = { ...repo.venue, fallbackPlaylist: ['fb-1'] };
+    repo.items.set(
+      'weak',
+      makeQueueItem({
+        queueItemId: 'weak',
+        status: 'queued',
+        upvotesCount: 2,
+        downvotesCount: 8, // ratio 0.2 < 0.60 at scale → gated out
+        songId: 'trk-weak',
+      }),
+    );
+    const { service } = build(repo, new Map([['fb-1', track({ providerTrackId: 'fb-1' })]]));
+    const res = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(res.usedFallback).toBe(true);
+    expect(res.nowPlaying).toBeNull();
+  });
+
+  it('lets the same low-approval item play in a small room (gate off below 10 actives)', async () => {
+    repo.activeUserCount = 4;
+    repo.items.set(
+      'weak',
+      makeQueueItem({
+        queueItemId: 'weak',
+        status: 'queued',
+        upvotesCount: 2,
+        downvotesCount: 8,
+        songId: 'trk-weak',
+      }),
+    );
+    const { service } = build(repo, new Map([['trk-weak', track({ providerTrackId: 'trk-weak' })]]));
+    const res = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(res.nowPlaying?.queueItemId).toBe('weak');
   });
 });
