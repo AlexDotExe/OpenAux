@@ -163,3 +163,8 @@ Realtime channel: `WS /ws/venues/:venueId` — events in `realtime-events.ts`.
     `song_crowd_skipped`, `power_hour_activated`, `boost_code_generated`,
     `reputation_updated` to `ANALYTICS_EVENT_TYPES`. Instant Play Vote purchase reuses
     `boost_purchased`; Boost Code redemption reuses `promo_code_redeemed`.
+- **2026-09-03** — Location verification at join (V1 Task A): `ApiErrorCode` gains
+  `outside_geofence`, returned by POST `/api/sessions/join` (403) when the venue has a
+  geofence configured and the patron's coordinates fall outside it (or were omitted).
+  No schema/domain changes — reuses the `venues.latitude/longitude/geofence_radius_m`
+  and `sessions.join_latitude/join_longitude` columns already added above.

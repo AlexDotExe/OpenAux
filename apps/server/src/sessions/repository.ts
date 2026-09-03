@@ -18,7 +18,12 @@ export interface SessionRepository {
     subject: string,
     displayName: string,
   ): Promise<User>;
-  createSession(userId: string, venueId: string, isGuest: boolean): Promise<Session>;
+  createSession(
+    userId: string,
+    venueId: string,
+    isGuest: boolean,
+    location?: { joinLatitude: number | null; joinLongitude: number | null },
+  ): Promise<Session>;
   touchSession(sessionId: string, now: Date): Promise<void>;
   /** All currently-active sessions; the lifecycle sweep filters these with isSessionExpired. */
   findActiveSessions(): Promise<Session[]>;
@@ -197,10 +202,15 @@ export class PgSessionRepository implements SessionRepository {
     return mapUser(created.rows[0]!);
   }
 
-  async createSession(userId: string, venueId: string, isGuest: boolean): Promise<Session> {
+  async createSession(
+    userId: string,
+    venueId: string,
+    isGuest: boolean,
+    location?: { joinLatitude: number | null; joinLongitude: number | null },
+  ): Promise<Session> {
     const result: QueryResult<SessionRow> = await this.pool.query(
-      'insert into sessions (user_id, venue_id, is_guest) values ($1, $2, $3) returning *',
-      [userId, venueId, isGuest],
+      'insert into sessions (user_id, venue_id, is_guest, join_latitude, join_longitude) values ($1, $2, $3, $4, $5) returning *',
+      [userId, venueId, isGuest, location?.joinLatitude ?? null, location?.joinLongitude ?? null],
     );
     return mapSession(result.rows[0]!);
   }

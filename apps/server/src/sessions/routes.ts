@@ -42,7 +42,8 @@ export function registerSessionRoutes(
       const result = await joinSession(body, { repository, authVerifier, analytics });
 
       if (!result.ok) {
-        const status = result.code === 'unauthorized' ? 401 : 404;
+        const status =
+          result.code === 'unauthorized' ? 401 : result.code === 'outside_geofence' ? 403 : 404;
         const error: ApiError = { error: { code: result.code, message: result.message } };
         return reply.status(status).send(error);
       }
