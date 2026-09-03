@@ -10,6 +10,12 @@
  *     `getFriction(item, now)`.
  *   - `startAntispamSweeper` (sweeper.ts) — call once at server startup with a
  *     `SessionRepository` (see `createPgSessionRepository` below).
+ *   - `computeReputationScore` / `updateReputation` (reputation.ts) — reputation
+ *     v1 formula + the recompute/persist/emit service (SPEC.md §5 V1).
+ *   - `isWithinRadius` / `haversineDistanceM` (location.ts) — join-time geofence
+ *     check for WS1's sessions/join (pure; wiring TODO in the report).
+ *   - `computeGroupArrivalSpamSignal` / `detectArrivalClusters` (group-abuse.ts)
+ *     — coarse arrival-time clustering signal for WS3's spam scoring term.
  */
 
 import type { FrictionConfig, FrictionProvider } from './friction.js';
@@ -24,6 +30,9 @@ export * from './cooldown.js';
 export * from './friction.js';
 export * from './vote-rate-limit.js';
 export * from './sweeper.js';
+export * from './reputation.js';
+export * from './location.js';
+export * from './group-abuse.js';
 export * from './pg-repositories.js';
 
 /** Convenience: a FrictionProvider wired straight to the shared pg pool. */
