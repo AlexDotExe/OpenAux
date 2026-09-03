@@ -64,6 +64,14 @@ export interface SelectNextInput {
    * The caller owns clearing the persisted marker; this function only reads it.
    */
   forcedItemId?: QueueItemId | null;
+  /**
+   * Optional extra playability gate composed on top of the V0 `isPlayable` check — e.g.
+   * the V1 min-vote gate (playability.ts). An item must pass BOTH to be eligible. A venue
+   * override (`forcedItemId`) still bypasses it, as it bypasses rank and the vibe
+   * constraint (overrides are deliberate). When omitted, only V0 playability applies, so
+   * existing callers are unaffected. Pure — the caller precomputes it.
+   */
+  gate?: (item: QueueItem) => boolean;
 }
 
 /**
@@ -84,7 +92,10 @@ export function selectNextTrack(input: SelectNextInput): NextSelection {
     }
   }
 
-  const playable = input.rankedItems.filter((item) => isPlayable(item, input.context));
+  const gate = input.gate;
+  const playable = input.rankedItems.filter(
+    (item) => isPlayable(item, input.context) && (gate ? gate(item) : true),
+  );
 
   const preferred = playable.find((item) => passesArtistConstraint(item, input.recentArtists));
   if (preferred) {

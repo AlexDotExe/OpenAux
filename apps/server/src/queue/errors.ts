@@ -31,6 +31,7 @@ export function statusForCode(code: ApiErrorCode): number {
     case 'request_cooldown':
     case 'boost_limit_reached':
     case 'insufficient_credits':
+    case 'already_skip_voted':
       return 409;
     case 'internal':
       return 500;
