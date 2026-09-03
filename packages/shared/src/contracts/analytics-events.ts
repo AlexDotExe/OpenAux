@@ -7,17 +7,24 @@
  */
 
 export const ANALYTICS_EVENT_TYPES = [
-  'request_created',
-  'vote_added',
-  'vote_removed',
-  'boost_purchased',
-  'song_played',
-  'song_skipped',
-  'user_session_started',
-  'user_session_expired',
-  'venue_override_used',
-  'promo_code_redeemed',
-  'refund_issued',
+  "request_created",
+  "vote_added",
+  "vote_removed",
+  "boost_purchased",
+  "song_played",
+  "song_skipped",
+  "user_session_started",
+  "user_session_expired",
+  "venue_override_used",
+  "promo_code_redeemed",
+  "refund_issued",
+  // V1 additions (SPEC.md §5 V1). 'boost_purchased' already covers Instant Play Vote
+  // purchase, and 'promo_code_redeemed' already covers Boost Code redemption.
+  "crowd_skip_vote",
+  "song_crowd_skipped",
+  "power_hour_activated",
+  "boost_code_generated",
+  "reputation_updated",
 ] as const;
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number];
