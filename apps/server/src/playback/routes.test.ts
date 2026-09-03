@@ -36,6 +36,7 @@ function makeQueueItem(id: string): QueueItem {
     playabilityReason: null,
     sourceType: 'organic',
     playedAt: null,
+    crowdSkipVotes: 0,
   };
 }
 

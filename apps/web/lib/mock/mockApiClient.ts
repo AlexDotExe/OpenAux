@@ -41,6 +41,7 @@ import {
   type UpdateVenueSettingsRequest,
   type VenueOverrideRequest,
   type VoteDirection,
+  PAID_BOOST_POINTS,
 } from '@openaux/shared';
 
 import { ApiClientError, type ApiClient, type AuthContext, type VenueSummary } from '../api';
@@ -136,6 +137,7 @@ function seedQueueItem(
     playabilityReason: null,
     sourceType: 'organic',
     playedAt: null,
+    crowdSkipVotes: 0,
   };
   recomputeScore(store, item);
   return item;
@@ -299,6 +301,7 @@ function advanceQueue(store: Store, terminalStatus: 'skipped' | 'played'): Queue
         playabilityReason: null,
         sourceType: 'venue',
         playedAt: null,
+        crowdSkipVotes: 0,
       };
       store.queueItems.push(fallbackItem);
       store.nowPlaying = fallbackItem;
@@ -457,6 +460,7 @@ export function createMockApiClient(): ApiClient {
             blockExplicit: store.venue.blockExplicit,
             blockedGenres: store.venue.blockedGenres,
             blockedArtists: store.venue.blockedArtists,
+            powerHour: null,
           },
         ],
       };
@@ -474,6 +478,7 @@ export function createMockApiClient(): ApiClient {
           blockExplicit: store.venue.blockExplicit,
           blockedGenres: store.venue.blockedGenres,
           blockedArtists: store.venue.blockedArtists,
+          powerHour: null,
         },
       };
     },
@@ -500,6 +505,8 @@ export function createMockApiClient(): ApiClient {
         cooldownEndsAt: null,
         lastVoteAt: null,
         lastRequestAt: null,
+        joinLatitude: null,
+        joinLongitude: null,
       };
       store.sessions.set(session.sessionId, session);
 
@@ -524,6 +531,7 @@ export function createMockApiClient(): ApiClient {
         blockExplicit: store.venue.blockExplicit,
         blockedGenres: store.venue.blockedGenres,
         blockedArtists: store.venue.blockedArtists,
+        powerHour: null,
       };
     },
 
@@ -615,6 +623,7 @@ export function createMockApiClient(): ApiClient {
           store.venue.controlMode === 'suggestion' ? 'Awaiting venue approval' : null,
         sourceType: 'organic',
         playedAt: null,
+        crowdSkipVotes: 0,
       };
       recomputeScore(store, item);
       store.queueItems.push(item);
@@ -692,7 +701,11 @@ export function createMockApiClient(): ApiClient {
       recomputeScore(store, item);
       publishQueueUpdated(store);
 
-      return { queueItem: item, creditBalance: store.creditBalances.get(session.userId) ?? 0 };
+      return {
+        queueItem: item,
+        creditBalance: store.creditBalances.get(session.userId) ?? 0,
+        paidPointsAdded: PAID_BOOST_POINTS[req.boostType as keyof typeof PAID_BOOST_POINTS] ?? 0,
+      };
     },
 
     async getPosition(queueItemId: string, auth: AuthContext): Promise<QueuePositionResponse> {
@@ -786,6 +799,7 @@ export function createMockApiClient(): ApiClient {
         playabilityReason: null,
         sourceType: 'override',
         playedAt: null,
+        crowdSkipVotes: 0,
       };
 
       store.queueItems.push(item);

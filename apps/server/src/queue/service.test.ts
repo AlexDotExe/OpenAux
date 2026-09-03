@@ -195,6 +195,8 @@ function makeSession(over: Partial<Session> = {}): Session {
     cooldownEndsAt: null,
     lastVoteAt: null,
     lastRequestAt: null,
+    joinLatitude: null,
+    joinLongitude: null,
     ...over,
   };
 }

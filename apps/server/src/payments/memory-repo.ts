@@ -79,6 +79,7 @@ export class InMemoryPaymentsRepo implements PaymentsRepo, PaymentsTx {
       playabilityReason: item.playabilityReason ?? null,
       sourceType: item.sourceType ?? 'organic',
       playedAt: item.playedAt ?? null,
+      crowdSkipVotes: item.crowdSkipVotes ?? 0,
     };
     this.queueItems.set(row.queueItemId, row);
     return row;

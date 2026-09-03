@@ -77,6 +77,7 @@ export class InMemoryVenueAuthRepository implements VenueAuthRepository {
       blockExplicit: false,
       blockedGenres: [],
       blockedArtists: [],
+      powerHour: null,
     };
     this.venues.set(venue.venueId, venue);
     return this.summary(venue);
@@ -106,6 +107,7 @@ export class InMemoryVenueAuthRepository implements VenueAuthRepository {
       blockExplicit: v.blockExplicit,
       blockedGenres: v.blockedGenres,
       blockedArtists: v.blockedArtists,
+      powerHour: null,
     };
   }
 }
