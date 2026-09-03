@@ -10,6 +10,7 @@ import type {
   MusicProviderId,
   QueueItem,
   QueueItemId,
+  ScoringModel,
   Session,
   SessionId,
   UserId,
@@ -30,6 +31,8 @@ export interface VenueConfig {
   blockedGenres: string[];
   blockedArtists: string[];
   scoringWeightsOverride: Partial<ScoringWeights> | null;
+  /** Which scoring engine ranks this venue's queue (§4). Default 'v0'. */
+  scoringModel: ScoringModel;
   fallbackPlaylist: string[];
 }
 
@@ -56,6 +59,9 @@ export interface QueueRepository {
   getVenueConfig(venueId: VenueId): Promise<VenueConfig | null>;
   getSessionById(sessionId: SessionId): Promise<Session | null>;
   getDisplayName(userId: UserId): Promise<string | null>;
+  /** Count of currently-active sessions for a venue — the playability gate's crowd size
+   * (SPEC.md §4 min-vote threshold, active only when scoringModel is 'v1'). */
+  getActiveUserCount(venueId: VenueId): Promise<number>;
 
   getQueueItem(queueItemId: QueueItemId): Promise<QueueItem | null>;
   /** Live (status = 'queued') items for a venue. */
@@ -228,7 +234,8 @@ export class PostgresQueueRepository implements QueueRepository {
   async getVenueConfig(venueId: VenueId): Promise<VenueConfig | null> {
     const { rows } = await this.pool.query(
       `select venue_id, name, control_mode, music_provider, block_explicit,
-              blocked_genres, blocked_artists, scoring_weights_override, fallback_playlist
+              blocked_genres, blocked_artists, scoring_weights_override, scoring_model,
+              fallback_playlist
          from venues where venue_id = $1`,
       [venueId],
     );
@@ -243,8 +250,17 @@ export class PostgresQueueRepository implements QueueRepository {
       blockedGenres: row.blocked_genres ?? [],
       blockedArtists: row.blocked_artists ?? [],
       scoringWeightsOverride: row.scoring_weights_override ?? null,
+      scoringModel: row.scoring_model,
       fallbackPlaylist: Array.isArray(row.fallback_playlist) ? row.fallback_playlist : [],
     };
+  }
+
+  async getActiveUserCount(venueId: VenueId): Promise<number> {
+    const { rows } = await this.pool.query(
+      `select count(*)::int as n from sessions where venue_id = $1 and is_active`,
+      [venueId],
+    );
+    return rows[0]?.n ?? 0;
   }
 
   async getSessionById(sessionId: SessionId): Promise<Session | null> {

@@ -11,21 +11,38 @@
  * Pure: callers pass the ranked items, recent artists, and fallback state.
  */
 
-import type { QueueItem, QueueItemId, VenueControlMode } from '@openaux/shared';
+import type { QueueItem, QueueItemId, ScoringModel, VenueControlMode } from '@openaux/shared';
 import { ARTIST_REPEAT_WINDOW } from './constants.js';
+import { passesMinVoteGate, type ActiveUserGate } from './playability.js';
 
 export interface PlayabilityContext {
   controlMode: VenueControlMode;
+  /** Activates the min-vote gate below when `'v1'`. Omitted/`'v0'` = no gate. */
+  scoringModel?: ScoringModel;
 }
 
 /**
- * V0 playability gate. An item is playable when it is still queued and its
+ * V0/V1 playability gate. An item is playable when it is still queued and its
  * playability_state is `playable` (in suggestion mode, unapproved items sit at
- * `awaiting_approval`; V1 gates hold items at `held`).
+ * `awaiting_approval`; V1 gates hold items at `held`). On `scoringModel: 'v1'`, an
+ * item additionally has to clear the min-vote gate (SPEC.md §4) once `gate` (the
+ * venue's live active-user count) is supplied.
  */
-export function isPlayable(item: QueueItem, _context: PlayabilityContext): boolean {
+export function isPlayable(
+  item: QueueItem,
+  context: PlayabilityContext,
+  gate?: ActiveUserGate | null,
+): boolean {
   if (item.status !== 'queued') return false;
-  return item.playabilityState === 'playable';
+  if (item.playabilityState !== 'playable') return false;
+  if (context.scoringModel === 'v1' && gate) {
+    return passesMinVoteGate({
+      upvotesCount: item.upvotesCount,
+      downvotesCount: item.downvotesCount,
+      gate,
+    });
+  }
+  return true;
 }
 
 function normalizeArtist(artist: string): string {
@@ -64,6 +81,9 @@ export interface SelectNextInput {
    * The caller owns clearing the persisted marker; this function only reads it.
    */
   forcedItemId?: QueueItemId | null;
+  /** Venue's live active-user count for the min-vote gate (`context.scoringModel: 'v1'`
+   * only; ignored otherwise). Null/omitted when the venue is off V1 or has no sessions. */
+  gate?: ActiveUserGate | null;
 }
 
 /**
@@ -79,12 +99,12 @@ export interface SelectNextInput {
 export function selectNextTrack(input: SelectNextInput): NextSelection {
   if (input.forcedItemId) {
     const forced = input.rankedItems.find((item) => item.queueItemId === input.forcedItemId);
-    if (forced && isPlayable(forced, input.context)) {
+    if (forced && isPlayable(forced, input.context, input.gate)) {
       return { kind: 'queue_item', item: forced, artistConstraintRelaxed: false, forced: true };
     }
   }
 
-  const playable = input.rankedItems.filter((item) => isPlayable(item, input.context));
+  const playable = input.rankedItems.filter((item) => isPlayable(item, input.context, input.gate));
 
   const preferred = playable.find((item) => passesArtistConstraint(item, input.recentArtists));
   if (preferred) {

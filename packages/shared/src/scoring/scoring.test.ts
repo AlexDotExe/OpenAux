@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_V0_WEIGHTS,
+  DEFAULT_V1_WEIGHTS,
   computeQueueRankScore,
+  computeQueueRankScoreV1,
   rankQueue,
   type RankableItem,
 } from './index.js';
@@ -72,5 +74,66 @@ describe('rankQueue tiebreakers', () => {
         { ...fewerDown, createdAt: new Date('2026-01-01T00:00:00Z') },
       ])[0]!.downvotesCount,
     ).toBe(1);
+  });
+});
+
+describe('computeQueueRankScoreV1', () => {
+  const zeroV1Inputs = {
+    upvotesCount: 0,
+    downvotesCount: 0,
+    priorityBoostCount: 0,
+    instantVoteCount: 0,
+    superBoostCount: 0,
+    ageMinutes: 0,
+    skipRisk: 0,
+    spamPenalty: 0,
+  };
+
+  it('scores a brand-new, untouched request as zero', () => {
+    const score = computeQueueRankScoreV1(zeroV1Inputs);
+    expect(score.total).toBe(0);
+  });
+
+  it('applies net_votes, time_boost, capped paid points, and friction per SPEC.md §4', () => {
+    const score = computeQueueRankScoreV1({
+      upvotesCount: 10,
+      downvotesCount: 4,
+      priorityBoostCount: 2, // 2 points
+      instantVoteCount: 1, // 4 points
+      superBoostCount: 1, // 7 points -> paid_points = 13, capped at 10
+      ageMinutes: Math.E - 1, // time_boost = log(1 + (e-1)) = 1
+      skipRisk: 1,
+      spamPenalty: 0.5,
+    });
+    // net_votes = 10 - 0.7*4 = 7.2; demand = 1.0*7.2 + 0.4*1 = 7.6
+    expect(score.demandScore).toBeCloseTo(7.6);
+    // paid_points_capped = min(13, 10) = 10; payment = 0.6*10 = 6
+    expect(score.paymentScore).toBe(6);
+    // friction = 2.0*1 + 3.0*0.5 = 3.5
+    expect(score.frictionScore).toBeCloseTo(3.5);
+    expect(score.total).toBeCloseTo(10.1);
+  });
+
+  it('caps paid points so crowd votes can still outweigh a single paid boost', () => {
+    const paidOnly = computeQueueRankScoreV1({ ...zeroV1Inputs, superBoostCount: 5 }); // 35 pts, capped to 10
+    const crowdOnly = computeQueueRankScoreV1({ ...zeroV1Inputs, upvotesCount: 20 });
+    expect(crowdOnly.total).toBeGreaterThan(paidOnly.total);
+  });
+
+  it('never lets paid_points_capped exceed the configured cap', () => {
+    const score = computeQueueRankScoreV1(
+      { ...zeroV1Inputs, superBoostCount: 100 },
+      DEFAULT_V1_WEIGHTS,
+    );
+    expect(score.paymentScore).toBe(DEFAULT_V1_WEIGHTS.paidPointsWeight * DEFAULT_V1_WEIGHTS.paidPointsCap);
+  });
+
+  it('paid actions never override crowd hate (downvotes still subtract from net_votes)', () => {
+    const heavilyDownvoted = computeQueueRankScoreV1({
+      ...zeroV1Inputs,
+      downvotesCount: 20,
+      superBoostCount: 1,
+    });
+    expect(heavilyDownvoted.total).toBeLessThan(0);
   });
 });

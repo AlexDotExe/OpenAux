@@ -20,6 +20,9 @@ export type PlayabilityState = 'playable' | 'held' | 'awaiting_approval';
 
 export type VenueControlMode = 'crowd' | 'suggestion';
 
+/** Which scoring engine (SPEC.md §4) ranks this venue's queue. Default 'v0'. */
+export type ScoringModel = 'v0' | 'v1';
+
 export type MusicProviderId = 'spotify' | 'apple_music';
 
 export interface User {
@@ -57,6 +60,8 @@ export interface Venue {
   blockedArtists: string[];
   /** Overrides for scoring weights; null = global defaults. */
   scoringWeightsOverride: Partial<import('../scoring/index.js').ScoringWeights> | null;
+  /** Which scoring engine ranks this venue's queue (§4). Default 'v0'. */
+  scoringModel: ScoringModel;
   /** Ordered provider track ids played when the live queue runs dry (silence fallback). */
   fallbackPlaylist: string[];
   /** Venue anthem + promo (SPEC.md §5). All null when no anthem is configured. */

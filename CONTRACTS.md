@@ -112,3 +112,24 @@ Realtime channel: `WS /ws/venues/:venueId` — events in `realtime-events.ts`.
     `Authorization: Bearer <owner session token>` (VENUE_ADMIN_TOKEN kept as fallback).
   - `VenueSummary` gains `musicProvider` (the web console can now detect the
     provider from the API instead of `NEXT_PUBLIC_VENUE_MUSIC_PROVIDER`).
+- **2026-09-03** — V1 scoring model + playability gate (schema ↔ domain ↔ scoring
+  ↔ queue core together):
+  - `scoring_model` enum (`'v0' | 'v1'`) + `venues.scoring_model not null default 'v0'`,
+    mirrored as `ScoringModel` + `Venue.scoringModel` in `domain.ts`.
+  - `packages/shared/src/scoring/index.ts` gains the V1+ capped engine (SPEC.md §4):
+    `V1ScoringWeights`, `DEFAULT_V1_WEIGHTS` (A=1.0, B=0.6, C=0.4, D=2.0, E=3.0,
+    downvoteWeight=0.7, paidPointsCap=10, PriorityBoost=1/InstantPlayVote=4/SuperBoost=7),
+    `V1ScoringInputs`, `computeQueueRankScoreV1`. V0 (`computeQueueRankScore`) remains
+    the default; this is the only implementation of either formula.
+  - `QueueRepository.getActiveUserCount(venueId)` — live active-session count backing
+    the min-vote gate (WS1 `sessions.is_active`).
+  - New `apps/server/src/queue/playability.ts`: `passesMinVoteGate` — the V1 hard
+    guardrail (SPEC.md §4/D3): off below 10 active users; once active, requires
+    `up >= 6 AND up/(up+down) >= 0.60`, unless upvotes alone clear 70% of active users
+    (crowd-override, always plays).
+  - `dj-brain.ts`: `PlayabilityContext.scoringModel` (opt-in gate activation),
+    `isPlayable(item, context, gate?)`, `SelectNextInput.gate` — wired through
+    `QueueService.advance/playNow/playNext` via a `getGate()` helper that only queries
+    `getActiveUserCount` for `scoringModel: 'v1'` venues.
+  - `ranking.ts`: `scoreItem`/`rankItems` switch to `computeQueueRankScoreV1` when the
+    venue's `scoringModel` is `'v1'` (default `'v0'`, fully backward compatible).

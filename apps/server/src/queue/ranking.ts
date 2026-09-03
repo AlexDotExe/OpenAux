@@ -8,10 +8,12 @@
 import {
   DEFAULT_V0_WEIGHTS,
   computeQueueRankScore,
+  computeQueueRankScoreV1,
   rankQueue,
   type QueueItem,
   type QueueItemId,
   type ScoreBreakdown,
+  type ScoringModel,
   type ScoringWeights,
 } from '@openaux/shared';
 import { ZERO_FRICTION, type FrictionInputs } from './seams.js';
@@ -23,12 +25,27 @@ export function resolveWeights(
   return { ...DEFAULT_V0_WEIGHTS, ...(override ?? {}) };
 }
 
-/** Score a single item via the shared engine. Pure. */
+/** Score a single item via the shared engine (V0 by default, V1 when the venue opts in). Pure. */
 export function scoreItem(
   item: QueueItem,
   weights: ScoringWeights,
   friction: FrictionInputs = ZERO_FRICTION,
+  scoringModel: ScoringModel = 'v0',
+  now: Date = new Date(),
 ): ScoreBreakdown {
+  if (scoringModel === 'v1') {
+    const ageMinutes = (now.getTime() - item.createdAt.getTime()) / 60_000;
+    return computeQueueRankScoreV1({
+      upvotesCount: item.upvotesCount,
+      downvotesCount: item.downvotesCount,
+      priorityBoostCount: item.priorityBoostCount,
+      instantVoteCount: item.instantVoteCount,
+      superBoostCount: item.superBoostCount,
+      ageMinutes,
+      skipRisk: friction.artistRepeatPenalty,
+      spamPenalty: friction.spamPenalty,
+    });
+  }
   return computeQueueRankScore(
     {
       upvotesCount: item.upvotesCount,
@@ -50,11 +67,18 @@ export function rankItems(
   items: QueueItem[],
   weights: ScoringWeights,
   frictionByItem: Map<QueueItemId, FrictionInputs> = new Map(),
+  scoringModel: ScoringModel = 'v0',
+  now: Date = new Date(),
 ): QueueItem[] {
   const scored = items.map((item) => ({
     ...item,
-    currentScore: scoreItem(item, weights, frictionByItem.get(item.queueItemId) ?? ZERO_FRICTION)
-      .total,
+    currentScore: scoreItem(
+      item,
+      weights,
+      frictionByItem.get(item.queueItemId) ?? ZERO_FRICTION,
+      scoringModel,
+      now,
+    ).total,
   }));
   return rankQueue(scored);
 }

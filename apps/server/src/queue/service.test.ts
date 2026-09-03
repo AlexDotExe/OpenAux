@@ -48,6 +48,7 @@ class FakeRepo implements QueueRepository {
     blockedGenres: [],
     blockedArtists: [],
     scoringWeightsOverride: null,
+    scoringModel: 'v0',
     fallbackPlaylist: [],
   };
   sessions = new Map<string, Session>();
@@ -58,6 +59,7 @@ class FakeRepo implements QueueRepository {
   playedCount = 0;
   recordRequestCalls = 0;
   forcedNextByVenue = new Map<string, string>();
+  activeUserCount = 0;
 
   private key(qi: string, u: string) {
     return `${qi}::${u}`;
@@ -65,6 +67,9 @@ class FakeRepo implements QueueRepository {
 
   async getVenueConfig() {
     return this.venue;
+  }
+  async getActiveUserCount() {
+    return this.activeUserCount;
   }
   async getSessionById(id: string) {
     return this.sessions.get(id) ?? null;
@@ -384,6 +389,111 @@ describe('QueueService.advance (DJ brain)', () => {
         (b) => b[1].type === 'now_playing_changed' && b[1].payload.queueItem === null,
       ),
     ).toBe(true);
+  });
+});
+
+describe('QueueService V1 scoring model + playability gate (integration)', () => {
+  let repo: FakeRepo;
+  beforeEach(() => {
+    repo = new FakeRepo();
+    repo.venue = { ...repo.venue, scoringModel: 'v1' };
+  });
+
+  it('ranks via the V1 formula (favors net votes + time boost over raw V0 weights)', async () => {
+    // Heavily downvoted but old item vs. a fresh, lightly-upvoted item: under V1's
+    // downvoteWeight (0.7) + timeBoost, the fresh upvoted item should still win —
+    // this only holds for the V1 formula, so it also proves V1 (not V0) is in use.
+    const old = makeQueueItem({
+      queueItemId: 'old',
+      status: 'queued',
+      artist: 'Old',
+      upvotesCount: 1,
+      downvotesCount: 5,
+      createdAt: new Date(FIXED_NOW.getTime() - 60 * 60_000),
+    });
+    const fresh = makeQueueItem({
+      queueItemId: 'fresh',
+      status: 'queued',
+      artist: 'Fresh',
+      upvotesCount: 8,
+      downvotesCount: 0,
+      createdAt: FIXED_NOW,
+    });
+    repo.items.set('old', old);
+    repo.items.set('fresh', fresh);
+    const { service } = build(repo, new Map());
+
+    const snapshot = await service.getQueueSnapshot('v1');
+    const ranked = [...snapshot.upNext, ...snapshot.rest];
+    expect(ranked[0]?.queueItemId).toBe('fresh');
+  });
+
+  it('gate holds an under-threshold item when >=10 active users are in session', async () => {
+    repo.activeUserCount = 10;
+    const held = makeQueueItem({
+      queueItemId: 'held',
+      status: 'queued',
+      artist: 'Held',
+      upvotesCount: 2,
+      downvotesCount: 2,
+    });
+    repo.items.set('held', held);
+    const { service } = build(repo, new Map());
+
+    const result = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(result.nowPlaying).toBeNull();
+    expect(result.usedFallback).toBe(false);
+  });
+
+  it('gate passes and falls back to the venue playlist correctly when nothing clears it', async () => {
+    repo.activeUserCount = 10;
+    repo.venue = { ...repo.venue, fallbackPlaylist: ['fallback-1'] };
+    const held = makeQueueItem({
+      queueItemId: 'held',
+      status: 'queued',
+      artist: 'Held',
+      upvotesCount: 2,
+      downvotesCount: 2,
+    });
+    repo.items.set('held', held);
+    const catalog = new Map([['fallback-1', track({ providerTrackId: 'fallback-1' })]]);
+    const { service, provider } = build(repo, catalog);
+
+    const result = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(result.usedFallback).toBe(true);
+    expect(provider.queued.map((t) => t.providerTrackId)).toEqual(['fallback-1']);
+  });
+
+  it('70%-of-actives override lets an item clear the gate despite a low ratio', async () => {
+    repo.activeUserCount = 10;
+    const overridden = makeQueueItem({
+      queueItemId: 'overridden',
+      status: 'queued',
+      artist: 'Overridden',
+      upvotesCount: 7, // >= 70% of 10 actives
+      downvotesCount: 5,
+    });
+    repo.items.set('overridden', overridden);
+    const { service } = build(repo, new Map());
+
+    const result = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(result.nowPlaying?.queueItemId).toBe('overridden');
+  });
+
+  it('below the 10-active-user floor, the gate is off entirely', async () => {
+    repo.activeUserCount = 3;
+    const item = makeQueueItem({
+      queueItemId: 'below-floor',
+      status: 'queued',
+      artist: 'BelowFloor',
+      upvotesCount: 1,
+      downvotesCount: 1,
+    });
+    repo.items.set('below-floor', item);
+    const { service } = build(repo, new Map());
+
+    const result = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(result.nowPlaying?.queueItemId).toBe('below-floor');
   });
 });
 

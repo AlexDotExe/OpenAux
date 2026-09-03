@@ -8,6 +8,7 @@ create type queue_item_status as enum ('queued', 'playing', 'played', 'skipped',
 create type queue_item_source as enum ('organic', 'sponsor', 'venue', 'override');
 create type playability_state as enum ('playable', 'held', 'awaiting_approval');
 create type venue_control_mode as enum ('crowd', 'suggestion');
+create type scoring_model as enum ('v0', 'v1');
 create type music_provider as enum ('spotify', 'apple_music');
 create type auth_provider as enum ('apple', 'google', 'phone', 'guest');
 create type vote_direction as enum ('up', 'down');
@@ -50,6 +51,7 @@ create table venues (
   blocked_genres           text[] not null default '{}',
   blocked_artists          text[] not null default '{}',
   scoring_weights_override jsonb,                -- partial ScoringWeights; null = defaults
+  scoring_model            scoring_model not null default 'v0', -- selects the ranking engine (§4)
   fallback_playlist        jsonb not null default '[]', -- ordered provider track ids
   -- Venue anthem + promo (SPEC.md §5 Announcements). Null anthem_provider_track_id = no anthem set.
   anthem_provider               music_provider,

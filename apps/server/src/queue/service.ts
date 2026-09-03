@@ -25,6 +25,7 @@ import {
 } from './constants.js';
 import { checkRequestEligibility } from './eligibility.js';
 import { isPlayable, selectNextTrack, type PlayabilityContext } from './dj-brain.js';
+import type { ActiveUserGate } from './playability.js';
 import { rankItems, resolveWeights } from './ranking.js';
 import { buildPositionResponse, buildQueueSnapshot } from './snapshot.js';
 import { resolveCastVote, resolveRemoveVote } from './votes.js';
@@ -281,7 +282,11 @@ export class QueueService {
     // it ends up playable (stale/removed forced items just fall through to normal pick).
     if (forcedItemId) await repository.clearForcedNextItem(params.venueId);
 
-    const context: PlayabilityContext = { controlMode: venue.controlMode };
+    const context: PlayabilityContext = {
+      controlMode: venue.controlMode,
+      scoringModel: venue.scoringModel,
+    };
+    const gate = await this.getGate(venue);
     const selection = selectNextTrack({
       rankedItems: ranked,
       recentArtists,
@@ -289,6 +294,7 @@ export class QueueService {
       fallbackPlaylist: venue.fallbackPlaylist,
       fallbackCursor: playedCount,
       forcedItemId,
+      gate,
     });
 
     if (selection.kind === 'queue_item') {
@@ -344,7 +350,8 @@ export class QueueService {
     if (item.status !== 'queued') {
       throw new QueueError('validation', 'Queue item is not currently queued.');
     }
-    if (!isPlayable(item, { controlMode: venue.controlMode })) {
+    const gate = await this.getGate(venue);
+    if (!isPlayable(item, { controlMode: venue.controlMode, scoringModel: venue.scoringModel }, gate)) {
       throw new QueueError(
         'validation',
         'Queue item is not eligible to play (awaiting approval or held).',
@@ -387,7 +394,8 @@ export class QueueService {
     if (item.status !== 'queued') {
       throw new QueueError('validation', 'Queue item is not currently queued.');
     }
-    if (!isPlayable(item, { controlMode: venue.controlMode })) {
+    const gate = await this.getGate(venue);
+    if (!isPlayable(item, { controlMode: venue.controlMode, scoringModel: venue.scoringModel }, gate)) {
       throw new QueueError(
         'validation',
         'Queue item is not eligible to play (awaiting approval or held).',
@@ -469,10 +477,11 @@ export class QueueService {
     });
 
     const weights = resolveWeights(venue.scoringWeightsOverride);
-    const ranked = rankItems(items, weights, frictionByItem);
+    const now = this.deps.clock.now();
+    const ranked = rankItems(items, weights, frictionByItem, venue.scoringModel, now);
 
     if (opts.persist && ranked.length > 0) {
-      const calcAt = this.deps.clock.now();
+      const calcAt = now;
       await repository.updateScores(
         ranked.map((i) => ({
           queueItemId: i.queueItemId,
@@ -483,6 +492,14 @@ export class QueueService {
     }
 
     return { venue, nowPlaying, ranked, frictionByItem };
+  }
+
+  /** Live active-user count for the min-vote gate, only fetched when the venue is on
+   * `scoringModel: 'v1'` (V0 venues never gate playability). */
+  private async getGate(venue: VenueConfig): Promise<ActiveUserGate | null> {
+    if (venue.scoringModel !== 'v1') return null;
+    const activeUserCount = await this.deps.repository.getActiveUserCount(venue.venueId);
+    return { activeUserCount };
   }
 
   private async recomputeAndBroadcast(venueId: VenueId): Promise<void> {
