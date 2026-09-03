@@ -9,7 +9,7 @@
  * a single SQL transaction. Unique-index violations surface as `UNIQUE_VIOLATION`
  * so the service can translate them into contract errors idempotently.
  */
-import type { QueueItem } from '@openaux/shared';
+import type { BoostCodeTier, QueueItem } from '@openaux/shared';
 import type {
   AuthProvider,
   PaymentStatus,
@@ -17,6 +17,7 @@ import type {
   RefundStatus,
   CreditsLedgerEntry,
 } from './domain-rows.js';
+import type { BoostCountColumn } from './boost-catalog.js';
 
 /** Minimal shape of `pg` we use — lets us pass a Pool or a PoolClient. */
 export interface PgLike {
@@ -96,6 +97,22 @@ export interface VenuePayoutGross {
   completedPurchaseCount: number;
 }
 
+/**
+ * A Boost Code row (camelCase view over `boost_codes`). WS4 venue owns code
+ * generation + the `tier`/`credit_value`/`expires_at` columns; settlement only
+ * reads a code and stamps `redeemed_by`/`redeemed_at` on redemption (D7).
+ */
+export interface BoostCodeRow {
+  boostCodeId: string;
+  code: string;
+  venueId: string;
+  tier: BoostCodeTier;
+  creditValue: number;
+  expiresAt: Date;
+  redeemedBy: string | null;
+  redeemedAt: Date | null;
+}
+
 // ---------------------------------------------------------------------------
 // Transaction + repo interfaces
 // ---------------------------------------------------------------------------
@@ -119,10 +136,28 @@ export interface PaymentsTx {
    * the new balance. Must reject if the result would go negative.
    */
   applyCreditDelta(userId: string, delta: number): Promise<number>;
-  /** Increment queue_items.priority_boost_count by 1. */
-  incrementPriorityBoostCount(queueItemId: string): Promise<void>;
-  /** Completed priority_boost payments for a queue item with refund_status='none'. */
+  /** Increment the given queue_items boost tally by 1. */
+  incrementBoostCount(queueItemId: string, column: BoostCountColumn): Promise<void>;
+  /**
+   * Completed boost of `paymentType` for (user, queue item), if any — the
+   * application-side 1-per-song-per-user guard for boosts without a dedicated
+   * partial unique index (instant_play_vote / super_boost). Runs under the
+   * queue-item row lock so concurrent purchases serialize.
+   */
+  findCompletedBoostForItem(
+    userId: string,
+    queueItemId: string,
+    paymentType: PaymentType,
+  ): Promise<PaymentEventRow | null>;
+  /** Paid boosts on a queue item still owed a refund (refund_status='none'). */
   findRefundableBoosts(queueItemId: string): Promise<PaymentEventRow[]>;
+  /** SELECT ... FOR UPDATE a boost code by its code string. Null if missing. */
+  lockBoostCodeByCode(code: string): Promise<BoostCodeRow | null>;
+  /**
+   * Stamp redeemed_by/redeemed_at on a still-unredeemed code. Returns true when
+   * a row was updated (guards single-use against a concurrent redemption).
+   */
+  markBoostCodeRedeemed(boostCodeId: string, userId: string, redeemedAt: Date): Promise<boolean>;
 }
 
 export interface PaymentsRepo {

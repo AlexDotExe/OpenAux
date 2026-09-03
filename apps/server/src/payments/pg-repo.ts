@@ -10,6 +10,7 @@ import type { Pool, PoolClient } from 'pg';
 import {
   PG_UNIQUE_VIOLATION,
   UniqueViolationError,
+  type BoostCodeRow,
   type InsertLedgerEntry,
   type InsertPaymentEvent,
   type PaymentEventRow,
@@ -19,8 +20,9 @@ import {
   type UserRow,
   type VenuePayoutGross,
 } from './repo.js';
-import type { CreditsLedgerEntry } from './domain-rows.js';
-import type { QueueItem } from '@openaux/shared';
+import type { CreditsLedgerEntry, PaymentType } from './domain-rows.js';
+import { REFUNDABLE_BOOST_TYPES, type BoostCountColumn } from './boost-catalog.js';
+import type { BoostCodeTier, QueueItem } from '@openaux/shared';
 
 interface PgError {
   code?: string;
@@ -50,6 +52,26 @@ function toPaymentEventRow(r: Record<string, unknown>): PaymentEventRow {
     idempotencyKey: (r.idempotency_key as string | null) ?? null,
   };
 }
+
+function toBoostCodeRow(r: Record<string, unknown>): BoostCodeRow {
+  return {
+    boostCodeId: r.boost_code_id as string,
+    code: r.code as string,
+    venueId: r.venue_id as string,
+    tier: r.tier as BoostCodeTier,
+    creditValue: r.credit_value as number,
+    expiresAt: r.expires_at as Date,
+    redeemedBy: (r.redeemed_by as string | null) ?? null,
+    redeemedAt: (r.redeemed_at as Date | null) ?? null,
+  };
+}
+
+/** BoostCountColumn is an app-fixed allowlist, so it is safe to interpolate. */
+const BOOST_COUNT_COLUMNS: readonly BoostCountColumn[] = [
+  'priority_boost_count',
+  'instant_vote_count',
+  'super_boost_count',
+];
 
 class PgPaymentsTx implements PaymentsTx {
   constructor(private readonly client: PoolClient) {}
@@ -163,25 +185,66 @@ class PgPaymentsTx implements PaymentsTx {
     return rows[0].credit_balance as number;
   }
 
-  async incrementPriorityBoostCount(queueItemId: string): Promise<void> {
+  async incrementBoostCount(queueItemId: string, column: BoostCountColumn): Promise<void> {
+    // `column` is validated against an app-fixed allowlist before interpolation.
+    if (!BOOST_COUNT_COLUMNS.includes(column)) {
+      throw new Error(`invalid boost count column: ${column}`);
+    }
     await this.client.query(
-      `update queue_items set priority_boost_count = priority_boost_count + 1
-         where queue_item_id = $1`,
+      `update queue_items set ${column} = ${column} + 1 where queue_item_id = $1`,
       [queueItemId],
     );
+  }
+
+  async findCompletedBoostForItem(
+    userId: string,
+    queueItemId: string,
+    paymentType: PaymentType,
+  ): Promise<PaymentEventRow | null> {
+    const { rows } = await this.client.query(
+      `select ${PAYMENT_EVENT_COLUMNS} from payment_events
+         where user_id = $1 and queue_item_id = $2
+           and payment_type = $3 and status = 'completed'
+         limit 1 for update`,
+      [userId, queueItemId, paymentType],
+    );
+    return rows[0] ? toPaymentEventRow(rows[0] as Record<string, unknown>) : null;
   }
 
   async findRefundableBoosts(queueItemId: string): Promise<PaymentEventRow[]> {
     const { rows } = await this.client.query(
       `select ${PAYMENT_EVENT_COLUMNS} from payment_events
          where queue_item_id = $1
-           and payment_type = 'priority_boost'
+           and payment_type = any($2::payment_type[])
            and status = 'completed'
            and refund_status = 'none'
          for update`,
-      [queueItemId],
+      [queueItemId, REFUNDABLE_BOOST_TYPES],
     );
     return rows.map((r) => toPaymentEventRow(r as Record<string, unknown>));
+  }
+
+  async lockBoostCodeByCode(code: string): Promise<BoostCodeRow | null> {
+    const { rows } = await this.client.query(
+      `select boost_code_id, code, venue_id, tier, credit_value,
+              expires_at, redeemed_by, redeemed_at
+         from boost_codes where code = $1 for update`,
+      [code],
+    );
+    return rows[0] ? toBoostCodeRow(rows[0] as Record<string, unknown>) : null;
+  }
+
+  async markBoostCodeRedeemed(
+    boostCodeId: string,
+    userId: string,
+    redeemedAt: Date,
+  ): Promise<boolean> {
+    const { rowCount } = await this.client.query(
+      `update boost_codes set redeemed_by = $2, redeemed_at = $3
+         where boost_code_id = $1 and redeemed_by is null`,
+      [boostCodeId, userId, redeemedAt],
+    );
+    return (rowCount ?? 0) > 0;
   }
 }
 
