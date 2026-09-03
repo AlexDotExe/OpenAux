@@ -25,6 +25,12 @@ const VENUE: Venue = {
   anthemPromoDurationMinutes: null,
   stripeAccountId: null,
   playbackDeviceId: null,
+  powerHourGenre: null,
+  powerHourMultiplier: null,
+  powerHourEndsAt: null,
+  latitude: null,
+  longitude: null,
+  geofenceRadiusM: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
 };
 
@@ -35,6 +41,11 @@ function makeGuestUser(id: string): User {
     authProvider: 'guest',
     creditBalance: 0,
     influenceScore: 0,
+    reputationScore: 0,
+    upvotesReceived: 0,
+    downvotesReceived: 0,
+    spamAttempts: 0,
+    songsSkipped: 0,
     createdAt: new Date('2026-01-01T00:00:00Z'),
   };
 }
@@ -53,6 +64,8 @@ function makeSession(over: Partial<Session> = {}): Session {
     cooldownEndsAt: null,
     lastVoteAt: null,
     lastRequestAt: null,
+    joinLatitude: null,
+    joinLongitude: null,
     ...over,
   };
 }
@@ -71,6 +84,11 @@ function makeRepository(over: Partial<SessionRepository> = {}): SessionRepositor
       authProvider: 'google' as const,
       creditBalance: 0,
       influenceScore: 0,
+      reputationScore: 0,
+      upvotesReceived: 0,
+      downvotesReceived: 0,
+      spamAttempts: 0,
+      songsSkipped: 0,
       createdAt: new Date('2026-01-01T00:00:00Z'),
     })),
     createSession: vi.fn(async (userId: string, venueId: string, isGuest: boolean) =>

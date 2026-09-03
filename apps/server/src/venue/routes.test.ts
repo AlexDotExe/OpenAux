@@ -368,6 +368,7 @@ describe('createVenueAnnouncementsService (notifyNowPlaying hook for WS3)', () =
       playabilityReason: null,
       sourceType: 'organic',
       playedAt: null,
+      crowdSkipVotes: 0,
     });
 
     expect(broadcastEvents).toContainEqual(

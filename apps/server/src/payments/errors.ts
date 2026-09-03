@@ -27,6 +27,10 @@ const STATUS_BY_CODE: Record<PaymentsErrorCode, number> = {
   internal: 500,
   boost_type_unavailable: 400,
   payment_gateway_error: 402,
+  boost_code_invalid: 400,
+  boost_code_expired: 410,
+  boost_code_already_redeemed: 409,
+  already_skip_voted: 409,
 };
 
 /** A typed, throwable error that carries a contract error code + HTTP status. */

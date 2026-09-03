@@ -45,6 +45,12 @@ interface VenueRow {
   anthem_promo_duration_minutes: number | null;
   stripe_account_id: string | null;
   playback_device_id: string | null;
+  power_hour_genre?: string | null;
+  power_hour_multiplier?: number | null;
+  power_hour_ends_at?: Date | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofence_radius_m?: number | null;
   created_at: Date;
 }
 
@@ -69,6 +75,12 @@ function mapVenue(row: VenueRow): Venue {
     anthemPromoDurationMinutes: row.anthem_promo_duration_minutes,
     stripeAccountId: row.stripe_account_id,
     playbackDeviceId: row.playback_device_id,
+    powerHourGenre: row.power_hour_genre ?? null,
+    powerHourMultiplier: row.power_hour_multiplier ?? null,
+    powerHourEndsAt: row.power_hour_ends_at ?? null,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
+    geofenceRadiusM: row.geofence_radius_m ?? null,
     createdAt: row.created_at,
   };
 }
@@ -79,6 +91,11 @@ interface UserRow {
   auth_provider: User['authProvider'];
   credit_balance: number;
   influence_score: string | number;
+  reputation_score?: string | number | null;
+  upvotes_received?: number | null;
+  downvotes_received?: number | null;
+  spam_attempts?: number | null;
+  songs_skipped?: number | null;
   created_at: Date;
 }
 
@@ -89,6 +106,11 @@ function mapUser(row: UserRow): User {
     authProvider: row.auth_provider,
     creditBalance: row.credit_balance,
     influenceScore: Number(row.influence_score),
+    reputationScore: Number(row.reputation_score ?? 0),
+    upvotesReceived: row.upvotes_received ?? 0,
+    downvotesReceived: row.downvotes_received ?? 0,
+    spamAttempts: row.spam_attempts ?? 0,
+    songsSkipped: row.songs_skipped ?? 0,
     createdAt: row.created_at,
   };
 }
@@ -106,6 +128,8 @@ interface SessionRow {
   cooldown_ends_at: Date | null;
   last_vote_at: Date | null;
   last_request_at: Date | null;
+  join_latitude?: number | null;
+  join_longitude?: number | null;
 }
 
 function mapSession(row: SessionRow): Session {
@@ -122,6 +146,8 @@ function mapSession(row: SessionRow): Session {
     cooldownEndsAt: row.cooldown_ends_at,
     lastVoteAt: row.last_vote_at,
     lastRequestAt: row.last_request_at,
+    joinLatitude: row.join_latitude ?? null,
+    joinLongitude: row.join_longitude ?? null,
   };
 }
 

@@ -253,6 +253,7 @@ export class PgPaymentsRepo implements PaymentsRepo {
       playabilityReason: r.playability_reason ?? null,
       sourceType: r.source_type,
       playedAt: r.played_at ?? null,
+      crowdSkipVotes: r.crowd_skip_votes ?? 0,
     };
   }
 

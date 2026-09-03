@@ -48,6 +48,7 @@ interface QueueItemRow {
   playability_reason: string | null;
   source_type: QueueItemSourceType;
   played_at: Date | null;
+  crowd_skip_votes?: number;
 }
 
 function mapQueueItemRow(row: QueueItemRow): QueueItem {
@@ -76,6 +77,7 @@ function mapQueueItemRow(row: QueueItemRow): QueueItem {
     playabilityReason: row.playability_reason,
     sourceType: row.source_type,
     playedAt: row.played_at,
+    crowdSkipVotes: row.crowd_skip_votes ?? 0,
   };
 }
 
@@ -190,6 +192,7 @@ export class PostgresVenueRepository implements VenueRepository {
       blockExplicit: row.block_explicit,
       blockedGenres: row.blocked_genres,
       blockedArtists: row.blocked_artists,
+      powerHour: null,
     };
   }
 

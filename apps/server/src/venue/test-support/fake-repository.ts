@@ -68,6 +68,7 @@ export class FakeVenueRepository implements VenueRepository {
       blockExplicit: settings.blockExplicit,
       blockedGenres: settings.blockedGenres,
       blockedArtists: settings.blockedArtists,
+      powerHour: null,
     };
   }
 
@@ -121,6 +122,7 @@ export class FakeVenueRepository implements VenueRepository {
       playabilityReason: null,
       sourceType: input.sourceType,
       playedAt: null,
+      crowdSkipVotes: 0,
     };
     this.queueItems.set(item.queueItemId, item);
     return item;

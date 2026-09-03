@@ -33,6 +33,7 @@ function makeQueueItem(overrides: Partial<QueueItem> = {}): QueueItem {
     playabilityReason: null,
     sourceType: 'organic',
     playedAt: null,
+    crowdSkipVotes: 0,
     ...overrides,
   };
 }
