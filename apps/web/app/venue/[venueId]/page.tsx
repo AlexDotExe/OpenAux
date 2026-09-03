@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import type { QueueSnapshot } from '@openaux/shared';
+import type { PowerHourState, QueueSnapshot } from '@openaux/shared';
 
 import { getApiClient, type AuthContext, type VenueSummary } from '../../../lib/api';
 import { clearVenueAdminToken, loadVenueAdminToken } from '../../../lib/session';
@@ -16,9 +16,11 @@ import { useVenueChannel } from '../../../lib/useVenueChannel';
 import { AnthemSetupForm } from '../../../components/venue/AnthemSetupForm';
 import { PlaybackPanel } from '../../../components/venue/PlaybackPanel';
 import { BlockManagementForm } from '../../../components/venue/BlockManagementForm';
+import { BoostCodePanel } from '../../../components/venue/BoostCodePanel';
 import { ControlModeToggle } from '../../../components/venue/ControlModeToggle';
 import { FallbackPlaylistEditor } from '../../../components/venue/FallbackPlaylistEditor';
 import { OverrideForm } from '../../../components/venue/OverrideForm';
+import { PowerHourControls } from '../../../components/venue/PowerHourControls';
 import { QrPanel } from '../../../components/venue/QrPanel';
 import { SkipButton } from '../../../components/venue/SkipButton';
 import { SuggestionApprovalList } from '../../../components/venue/SuggestionApprovalList';
@@ -82,6 +84,16 @@ export default function VenueConsolePage() {
   );
 
   const nowPlayingItem = channel.nowPlaying?.queueItem ?? snapshot?.nowPlaying ?? null;
+
+  // Prefer the live channel window (activated/ended events); fall back to the
+  // value from the initial GET /venues/:id. The banner self-hides once endsAt passes.
+  const activePowerHour: PowerHourState | null = channel.powerHour
+    ? {
+        genre: channel.powerHour.genre,
+        multiplier: channel.powerHour.multiplier,
+        endsAt: channel.powerHour.endsAt,
+      }
+    : (venue?.powerHour ?? null);
 
   return (
     <main className="page page--wide stack">
@@ -160,6 +172,15 @@ export default function VenueConsolePage() {
           <FallbackPlaylistEditor venueId={venueId} auth={auth} initialTracks={[]} />
 
           <AnthemSetupForm venueId={venueId} auth={auth} />
+
+          <PowerHourControls
+            venueId={venueId}
+            auth={auth}
+            active={activePowerHour}
+            onActivated={(powerHour) => setVenue((v) => (v ? { ...v, powerHour } : v))}
+          />
+
+          <BoostCodePanel venueId={venueId} auth={auth} />
         </>
       )}
     </main>

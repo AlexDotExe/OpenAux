@@ -45,6 +45,8 @@ describe('applyRealtimeEvent', () => {
       nowPlaying: null,
       announcements: [],
       sessionExpired: false,
+      powerHour: null,
+      crowdSkip: null,
     });
   });
 
@@ -92,6 +94,47 @@ describe('applyRealtimeEvent', () => {
     const event: RealtimeEvent = { type: 'session_expired', payload: { sessionId: 'session-1' } };
     const next = applyRealtimeEvent(initialVenueChannelState, event);
     expect(next.sessionExpired).toBe(true);
+  });
+
+  it('sets and clears the Power Hour window on activated/ended', () => {
+    const activated: RealtimeEvent = {
+      type: 'power_hour_activated',
+      payload: { genre: 'hip-hop', multiplier: 2, endsAt: '2026-09-03T23:00:00.000Z', bannerText: '🔥' },
+    };
+    const withPowerHour = applyRealtimeEvent(initialVenueChannelState, activated);
+    expect(withPowerHour.powerHour).toEqual(activated.payload);
+
+    const ended: RealtimeEvent = { type: 'power_hour_ended', payload: { genre: 'hip-hop' } };
+    const cleared = applyRealtimeEvent(withPowerHour, ended);
+    expect(cleared.powerHour).toBeNull();
+  });
+
+  it('tracks the crowd-skip tally and clears it when the song is skipped', () => {
+    const update: RealtimeEvent = {
+      type: 'crowd_skip_vote_update',
+      payload: { queueItemId: 'qi-1', crowdSkipVotes: 3, threshold: 5 },
+    };
+    const withTally = applyRealtimeEvent(initialVenueChannelState, update);
+    expect(withTally.crowdSkip).toEqual(update.payload);
+
+    const skipped: RealtimeEvent = {
+      type: 'song_crowd_skipped',
+      payload: { queueItemId: 'qi-1', crowdSkipVotes: 5 },
+    };
+    expect(applyRealtimeEvent(withTally, skipped).crowdSkip).toBeNull();
+  });
+
+  it('resets the crowd-skip tally when a new song starts playing', () => {
+    const update: RealtimeEvent = {
+      type: 'crowd_skip_vote_update',
+      payload: { queueItemId: 'qi-1', crowdSkipVotes: 2, threshold: 5 },
+    };
+    const withTally = applyRealtimeEvent(initialVenueChannelState, update);
+    const nowPlaying: RealtimeEvent = {
+      type: 'now_playing_changed',
+      payload: { queueItem: makeQueueItem({ queueItemId: 'qi-2' }), djAttribution: null },
+    };
+    expect(applyRealtimeEvent(withTally, nowPlaying).crowdSkip).toBeNull();
   });
 
   it('is a pure function — does not mutate the input state', () => {
