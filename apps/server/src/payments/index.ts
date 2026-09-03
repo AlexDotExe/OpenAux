@@ -23,6 +23,8 @@ import type {
   PurchaseBoostResponse,
   PurchaseCreditsRequest,
   PurchaseCreditsResponse,
+  RedeemBoostCodeRequest,
+  RedeemBoostCodeResponse,
 } from '@openaux/shared';
 import { PAID_BOOST_POINTS } from '@openaux/shared';
 import { pool } from '../db.js';
@@ -62,7 +64,10 @@ export function createPaymentsService(
   return new PaymentsService({ repo, gateway, analytics });
 }
 
-const V0_BOOST_TYPES: readonly PurchaseBoostRequest['boostType'][] = [
+// Boost types the route recognizes; per-release availability (Instant Play Vote
+// is live in V1, Super Boost is still gated) is enforced in purchaseBoost via the
+// catalog `available` flag, which surfaces the same boost_type_unavailable error.
+const KNOWN_BOOST_TYPES: readonly PurchaseBoostRequest['boostType'][] = [
   'priority_boost',
   'instant_play_vote',
   'super_boost',
@@ -116,7 +121,7 @@ export async function registerPaymentRoutes(
         const actor = await resolveActor(req);
         const body = (req.body ?? {}) as Partial<PurchaseBoostRequest>;
         const boostType = body.boostType;
-        if (!boostType || !V0_BOOST_TYPES.includes(boostType)) {
+        if (!boostType || !KNOWN_BOOST_TYPES.includes(boostType)) {
           throw new PaymentsError('boost_type_unavailable', 'Unknown or missing boostType.');
         }
         const idempotencyKey = idempotencyKeyFrom(req) ?? randomUUID();
@@ -141,6 +146,33 @@ export async function registerPaymentRoutes(
       }
     },
   );
+
+  // POST /api/boost-codes/redeem
+  app.post('/api/boost-codes/redeem', async (req, reply) => {
+    try {
+      const actor = await resolveActor(req);
+      const body = (req.body ?? {}) as Partial<RedeemBoostCodeRequest>;
+      const code = typeof body.code === 'string' ? body.code.trim() : '';
+      if (!code) {
+        throw new PaymentsError('boost_code_invalid', 'A code is required.');
+      }
+      const idempotencyKey = idempotencyKeyFrom(req) ?? randomUUID();
+
+      const result = await service.redeemBoostCode({
+        userId: actor.userId,
+        code,
+        idempotencyKey,
+      });
+      const res: RedeemBoostCodeResponse = {
+        tier: result.tier,
+        creditsAdded: result.creditsAdded,
+        creditBalance: result.creditBalance,
+      };
+      return reply.send(res);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
 }
 
 function sendError(reply: import('fastify').FastifyReply, err: unknown) {
