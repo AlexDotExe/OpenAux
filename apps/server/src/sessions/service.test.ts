@@ -91,8 +91,20 @@ function makeRepository(over: Partial<SessionRepository> = {}): SessionRepositor
       songsSkipped: 0,
       createdAt: new Date('2026-01-01T00:00:00Z'),
     })),
-    createSession: vi.fn(async (userId: string, venueId: string, isGuest: boolean) =>
-      makeSession({ userId, venueId, isGuest }),
+    createSession: vi.fn(
+      async (
+        userId: string,
+        venueId: string,
+        isGuest: boolean,
+        location?: { joinLatitude: number | null; joinLongitude: number | null },
+      ) =>
+        makeSession({
+          userId,
+          venueId,
+          isGuest,
+          joinLatitude: location?.joinLatitude ?? null,
+          joinLongitude: location?.joinLongitude ?? null,
+        }),
     ),
     touchSession: vi.fn(async () => undefined),
     findActiveSessions: vi.fn(async () => []),
@@ -223,5 +235,64 @@ describe('joinSession — authToken seam', () => {
       'Real User',
     );
     if (result.ok) expect(result.session.isGuest).toBe(false);
+  });
+});
+
+describe('joinSession — location verification (SPEC.md §5/§7)', () => {
+  const GEOFENCED_VENUE: Venue = {
+    ...VENUE,
+    latitude: 40.0,
+    longitude: -74.0,
+    geofenceRadiusM: 100,
+  };
+
+  it('allows the join when the venue has no geofence configured, regardless of coords', async () => {
+    const repository = makeRepository();
+    const result = await joinSession({ venueQrToken: VENUE.qrToken }, { repository });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects with outside_geofence when the venue has a geofence and no coords were supplied', async () => {
+    const repository = makeRepository({
+      findVenueByQrToken: vi.fn(async () => GEOFENCED_VENUE),
+    });
+    const result = await joinSession({ venueQrToken: VENUE.qrToken }, { repository });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('outside_geofence');
+    expect(repository.createGuestUser).not.toHaveBeenCalled();
+    expect(repository.createSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects with outside_geofence when the patron coords are outside the radius', async () => {
+    const repository = makeRepository({
+      findVenueByQrToken: vi.fn(async () => GEOFENCED_VENUE),
+    });
+    const result = await joinSession(
+      { venueQrToken: VENUE.qrToken, latitude: 41.0, longitude: -75.0 },
+      { repository },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('outside_geofence');
+  });
+
+  it('allows and persists join coords when the patron is within the radius', async () => {
+    const repository = makeRepository({
+      findVenueByQrToken: vi.fn(async () => GEOFENCED_VENUE),
+    });
+    const result = await joinSession(
+      { venueQrToken: VENUE.qrToken, latitude: 40.0001, longitude: -74.0001 },
+      { repository },
+    );
+    expect(result.ok).toBe(true);
+    expect(repository.createSession).toHaveBeenCalledWith(
+      expect.any(String),
+      GEOFENCED_VENUE.venueId,
+      true,
+      { joinLatitude: 40.0001, joinLongitude: -74.0001 },
+    );
+    if (result.ok) {
+      expect(result.session.joinLatitude).toBe(40.0001);
+      expect(result.session.joinLongitude).toBe(-74.0001);
+    }
   });
 });

@@ -101,6 +101,8 @@ export type ApiErrorCode =
   | "boost_code_already_redeemed"
   // Crowd-skip vote (V1) — the caller already voted to skip the current song.
   | "already_skip_voted"
+  // Location verification (V1, SPEC.md §5/§7) — join rejected by the venue geofence.
+  | "outside_geofence"
   | "not_found"
   | "unauthorized"
   | "internal";

@@ -31,6 +31,7 @@ const STATUS_BY_CODE: Record<PaymentsErrorCode, number> = {
   boost_code_expired: 410,
   boost_code_already_redeemed: 409,
   already_skip_voted: 409,
+  outside_geofence: 403,
 };
 
 /** A typed, throwable error that carries a contract error code + HTTP status. */
