@@ -129,6 +129,7 @@ interface QueueItemRow {
   playability_reason: string | null;
   source_type: QueueItem['sourceType'];
   played_at: Date | null;
+  crowd_skip_votes?: number;
 }
 
 function mapQueueItem(row: QueueItemRow): QueueItem {
@@ -157,6 +158,7 @@ function mapQueueItem(row: QueueItemRow): QueueItem {
     playabilityReason: row.playability_reason,
     sourceType: row.source_type,
     playedAt: row.played_at,
+    crowdSkipVotes: row.crowd_skip_votes ?? 0,
   };
 }
 
@@ -173,6 +175,8 @@ interface SessionRow {
   cooldown_ends_at: Date | null;
   last_vote_at: Date | null;
   last_request_at: Date | null;
+  join_latitude?: number | null;
+  join_longitude?: number | null;
 }
 
 function mapSession(row: SessionRow): Session {
@@ -189,6 +193,8 @@ function mapSession(row: SessionRow): Session {
     cooldownEndsAt: row.cooldown_ends_at,
     lastVoteAt: row.last_vote_at,
     lastRequestAt: row.last_request_at,
+    joinLatitude: row.join_latitude ?? null,
+    joinLongitude: row.join_longitude ?? null,
   };
 }
 

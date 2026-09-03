@@ -24,6 +24,7 @@ import type {
   PurchaseCreditsRequest,
   PurchaseCreditsResponse,
 } from '@openaux/shared';
+import { PAID_BOOST_POINTS } from '@openaux/shared';
 import { pool } from '../db.js';
 import { PaymentsService } from './service.js';
 import { PgPaymentsRepo } from './pg-repo.js';
@@ -129,7 +130,11 @@ export async function registerPaymentRoutes(
 
         const queueItem = await service.getQueueItemView(req.params.queueItemId);
         if (!queueItem) throw new PaymentsError('not_found', 'Queue item not found.');
-        const res: PurchaseBoostResponse = { queueItem, creditBalance: result.creditBalance };
+        const res: PurchaseBoostResponse = {
+          queueItem,
+          creditBalance: result.creditBalance,
+          paidPointsAdded: PAID_BOOST_POINTS[boostType as keyof typeof PAID_BOOST_POINTS] ?? 0,
+        };
         return reply.send(res);
       } catch (err) {
         return sendError(reply, err);

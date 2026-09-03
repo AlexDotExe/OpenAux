@@ -81,6 +81,7 @@ function mapVenueSummary(row: VenueRow): VenueSummary {
     blockExplicit: row.block_explicit,
     blockedGenres: row.blocked_genres,
     blockedArtists: row.blocked_artists,
+    powerHour: null,
   };
 }
 
