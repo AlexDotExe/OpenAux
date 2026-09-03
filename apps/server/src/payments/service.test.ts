@@ -233,23 +233,125 @@ describe('purchaseBoost', () => {
     ).rejects.toMatchObject({ code: 'not_found' });
   });
 
-  it.each(['instant_play_vote', 'super_boost'] as const)(
-    'rejects %s as not-yet-available without charging',
-    async (boostType) => {
-      const { repo, service, analytics } = seedBoostable();
-      await expect(
-        service.purchaseBoost({
-          userId: 'u1',
-          queueItemId: 'q1',
-          boostType,
-          idempotencyKey: 'k',
-        }),
-      ).rejects.toMatchObject({ code: 'boost_type_unavailable' });
-      expect(repo.users.get('u1')!.creditBalance).toBe(3);
-      expect(repo.paymentEvents).toHaveLength(0);
-      expect(analytics.events).toHaveLength(0);
-    },
-  );
+  it('rejects super_boost as not-yet-available (V2) without charging', async () => {
+    const { repo, service, analytics } = seedBoostable();
+    await expect(
+      service.purchaseBoost({
+        userId: 'u1',
+        queueItemId: 'q1',
+        boostType: 'super_boost',
+        idempotencyKey: 'k',
+      }),
+    ).rejects.toMatchObject({ code: 'boost_type_unavailable' });
+    expect(repo.users.get('u1')!.creditBalance).toBe(3);
+    expect(repo.paymentEvents).toHaveLength(0);
+    expect(analytics.events).toHaveLength(0);
+  });
+});
+
+describe('purchaseBoost — Instant Play Vote ($3, V1)', () => {
+  function seedVoter(creditBalance = 3) {
+    const ctx = setup();
+    ctx.repo.seedUser({ userId: 'u1', creditBalance });
+    ctx.repo.seedQueueItem({ queueItemId: 'q1', venueId: 'v1' });
+    return ctx;
+  }
+
+  it('debits 3 credits, increments instantVoteCount, writes the event, emits boost_purchased', async () => {
+    const { repo, analytics, service } = seedVoter();
+    const res = await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'instant_play_vote',
+      idempotencyKey: 'ipv-1',
+    });
+
+    expect(res.creditBalance).toBe(0);
+    expect(repo.queueItems.get('q1')!.instantVoteCount).toBe(1);
+    expect(repo.queueItems.get('q1')!.priorityBoostCount).toBe(0);
+    const event = repo.paymentEvents.find((e) => e.paymentType === 'instant_play_vote');
+    expect(event).toMatchObject({ status: 'completed', creditAmount: 3, cashAmountCents: 0 });
+    expect(repo.ledger.some((e) => e.reason === 'instant_play_vote' && e.delta === -3)).toBe(true);
+    const purchased = analytics.events.filter((e) => e.eventType === 'boost_purchased');
+    expect(purchased).toHaveLength(1);
+    expect(purchased[0]!.metadata).toMatchObject({ boostType: 'instant_play_vote', creditCost: 3 });
+    assertLedgerMatchesBalance(repo, 'u1');
+  });
+
+  it('rejects when the user cannot afford 3 credits', async () => {
+    const { repo, service } = seedVoter(2);
+    await expect(
+      service.purchaseBoost({
+        userId: 'u1',
+        queueItemId: 'q1',
+        boostType: 'instant_play_vote',
+        idempotencyKey: 'k',
+      }),
+    ).rejects.toMatchObject({ code: 'insufficient_credits' });
+    expect(repo.users.get('u1')!.creditBalance).toBe(2);
+    expect(repo.paymentEvents).toHaveLength(0);
+  });
+
+  it('is idempotent on double-submit (same key): debits once, one analytics event', async () => {
+    const { repo, analytics, service } = seedVoter();
+    await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'instant_play_vote',
+      idempotencyKey: 'same',
+    });
+    const second = await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'instant_play_vote',
+      idempotencyKey: 'same',
+    });
+    expect(second.creditBalance).toBe(0);
+    expect(repo.queueItems.get('q1')!.instantVoteCount).toBe(1);
+    expect(analytics.events.filter((e) => e.eventType === 'boost_purchased')).toHaveLength(1);
+    assertLedgerMatchesBalance(repo, 'u1');
+  });
+
+  it('enforces 1 Instant Play Vote per song per user (boost_limit_reached)', async () => {
+    const { repo, service } = seedVoter(6);
+    await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'instant_play_vote',
+      idempotencyKey: 'first',
+    });
+    await expect(
+      service.purchaseBoost({
+        userId: 'u1',
+        queueItemId: 'q1',
+        boostType: 'instant_play_vote',
+        idempotencyKey: 'second-different-key',
+      }),
+    ).rejects.toMatchObject({ code: 'boost_limit_reached' });
+    expect(repo.users.get('u1')!.creditBalance).toBe(3);
+    expect(repo.queueItems.get('q1')!.instantVoteCount).toBe(1);
+    assertLedgerMatchesBalance(repo, 'u1');
+  });
+
+  it('lets the same user buy a Priority Boost AND an Instant Play Vote on one song', async () => {
+    const { repo, service } = seedVoter(4);
+    await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'priority_boost',
+      idempotencyKey: 'pb',
+    });
+    await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'instant_play_vote',
+      idempotencyKey: 'ipv',
+    });
+    expect(repo.users.get('u1')!.creditBalance).toBe(0);
+    expect(repo.queueItems.get('q1')!.priorityBoostCount).toBe(1);
+    expect(repo.queueItems.get('q1')!.instantVoteCount).toBe(1);
+    assertLedgerMatchesBalance(repo, 'u1');
+  });
 });
 
 describe('settleQueueItem (auto-refund, D14)', () => {
@@ -323,6 +425,147 @@ describe('settleQueueItem (auto-refund, D14)', () => {
     expect(res).toEqual({ refundedCount: 2, refundedCredits: 2 });
     expect(repo.users.get('u1')!.creditBalance).toBe(1);
     expect(repo.users.get('u2')!.creditBalance).toBe(1);
+  });
+
+  it('refunds an Instant Play Vote (3 credits) on a song that never plays', async () => {
+    const { repo, analytics, service } = setup();
+    repo.seedUser({ userId: 'u1', creditBalance: 3 });
+    repo.seedQueueItem({ queueItemId: 'q1', venueId: 'v1' });
+    await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'instant_play_vote',
+      idempotencyKey: 'ipv',
+    });
+    expect(repo.users.get('u1')!.creditBalance).toBe(0);
+
+    const res = await service.settleQueueItem('q1', 'expired');
+    expect(res).toEqual({ refundedCount: 1, refundedCredits: 3 });
+    expect(repo.users.get('u1')!.creditBalance).toBe(3);
+    expect(repo.paymentEvents.find((e) => e.paymentType === 'instant_play_vote')!.refundStatus).toBe(
+      'refunded_to_credit',
+    );
+    expect(analytics.events.map((e) => e.eventType)).toContain('refund_issued');
+    assertLedgerMatchesBalance(repo, 'u1');
+  });
+
+  it('refunds a mix of Priority Boost + Instant Play Vote on one dropped song', async () => {
+    const { repo, service } = setup();
+    repo.seedUser({ userId: 'u1', creditBalance: 1 });
+    repo.seedUser({ userId: 'u2', creditBalance: 3 });
+    repo.seedQueueItem({ queueItemId: 'q1', venueId: 'v1' });
+    await service.purchaseBoost({
+      userId: 'u1',
+      queueItemId: 'q1',
+      boostType: 'priority_boost',
+      idempotencyKey: 'pb',
+    });
+    await service.purchaseBoost({
+      userId: 'u2',
+      queueItemId: 'q1',
+      boostType: 'instant_play_vote',
+      idempotencyKey: 'ipv',
+    });
+
+    const res = await service.settleQueueItem('q1', 'blocked');
+    expect(res).toEqual({ refundedCount: 2, refundedCredits: 4 });
+    expect(repo.users.get('u1')!.creditBalance).toBe(1);
+    expect(repo.users.get('u2')!.creditBalance).toBe(3);
+    assertLedgerMatchesBalance(repo, 'u1');
+    assertLedgerMatchesBalance(repo, 'u2');
+  });
+});
+
+describe('redeemBoostCode (Boost Codes, D7)', () => {
+  function seedRedeemer(creditBalance = 0) {
+    const ctx = setup();
+    ctx.repo.seedUser({ userId: 'u1', creditBalance });
+    return ctx;
+  }
+
+  it('credits the tier value, writes a promo_code_redemption event + ledger, emits analytics', async () => {
+    const { repo, analytics, service } = seedRedeemer();
+    repo.seedBoostCode({ code: 'BEER-1', venueId: 'v1', tier: 'cocktail', creditValue: 2 });
+
+    const res = await service.redeemBoostCode({
+      userId: 'u1',
+      code: 'BEER-1',
+      idempotencyKey: 'r1',
+    });
+
+    expect(res).toEqual({ tier: 'cocktail', creditsAdded: 2, creditBalance: 2 });
+    const event = repo.paymentEvents.find((e) => e.paymentType === 'promo_code_redemption');
+    expect(event).toMatchObject({ status: 'completed', creditAmount: 2, venueId: 'v1' });
+    expect(repo.ledger.some((e) => e.reason === 'promo_code_redemption' && e.delta === 2)).toBe(true);
+    const code = repo.boostCodes.get('BEER-1')!;
+    expect(code.redeemedBy).toBe('u1');
+    expect(code.redeemedAt).not.toBeNull();
+    expect(analytics.events.map((e) => e.eventType)).toContain('promo_code_redeemed');
+    assertLedgerMatchesBalance(repo, 'u1');
+  });
+
+  it('rejects an unknown code (boost_code_invalid) without crediting', async () => {
+    const { repo, service } = seedRedeemer();
+    await expect(
+      service.redeemBoostCode({ userId: 'u1', code: 'NOPE', idempotencyKey: 'r' }),
+    ).rejects.toMatchObject({ code: 'boost_code_invalid' });
+    expect(repo.users.get('u1')!.creditBalance).toBe(0);
+    expect(repo.paymentEvents).toHaveLength(0);
+  });
+
+  it('rejects an expired code (boost_code_expired)', async () => {
+    const { repo, service } = seedRedeemer();
+    repo.seedBoostCode({
+      code: 'OLD',
+      venueId: 'v1',
+      tier: 'beer',
+      creditValue: 1,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    await expect(
+      service.redeemBoostCode({ userId: 'u1', code: 'OLD', idempotencyKey: 'r' }),
+    ).rejects.toMatchObject({ code: 'boost_code_expired' });
+    expect(repo.users.get('u1')!.creditBalance).toBe(0);
+  });
+
+  it('rejects a code already redeemed by someone else (boost_code_already_redeemed)', async () => {
+    const { repo, service } = seedRedeemer();
+    repo.seedBoostCode({
+      code: 'USED',
+      venueId: 'v1',
+      tier: 'bottle',
+      creditValue: 10,
+      redeemedBy: 'someone',
+      redeemedAt: new Date(),
+    });
+    await expect(
+      service.redeemBoostCode({ userId: 'u1', code: 'USED', idempotencyKey: 'r' }),
+    ).rejects.toMatchObject({ code: 'boost_code_already_redeemed' });
+    expect(repo.users.get('u1')!.creditBalance).toBe(0);
+  });
+
+  it('is idempotent on the same key: credits once, one analytics event, one ledger entry', async () => {
+    const { repo, analytics, service } = seedRedeemer();
+    repo.seedBoostCode({ code: 'B10', venueId: 'v1', tier: 'bottle', creditValue: 10 });
+
+    const first = await service.redeemBoostCode({ userId: 'u1', code: 'B10', idempotencyKey: 'same' });
+    const second = await service.redeemBoostCode({ userId: 'u1', code: 'B10', idempotencyKey: 'same' });
+
+    expect(first).toEqual({ tier: 'bottle', creditsAdded: 10, creditBalance: 10 });
+    expect(second.creditBalance).toBe(10);
+    expect(repo.paymentEvents.filter((e) => e.paymentType === 'promo_code_redemption')).toHaveLength(1);
+    expect(repo.ledger.filter((e) => e.reason === 'promo_code_redemption')).toHaveLength(1);
+    expect(analytics.events.filter((e) => e.eventType === 'promo_code_redeemed')).toHaveLength(1);
+    assertLedgerMatchesBalance(repo, 'u1');
+  });
+
+  it('treats the expiry boundary as inclusive (expiresAt == now → expired)', async () => {
+    const { repo, service } = seedRedeemer();
+    const now = new Date('2026-09-03T12:00:00Z');
+    repo.seedBoostCode({ code: 'EDGE', venueId: 'v1', tier: 'beer', creditValue: 1, expiresAt: now });
+    await expect(
+      service.redeemBoostCode({ userId: 'u1', code: 'EDGE', idempotencyKey: 'r', now }),
+    ).rejects.toMatchObject({ code: 'boost_code_expired' });
   });
 });
 
