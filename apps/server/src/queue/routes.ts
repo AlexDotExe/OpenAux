@@ -114,6 +114,22 @@ export function registerQueueRouteHandlers(
       }
     },
   );
+
+  // POST /api/queue-items/:queueItemId/skip-vote — crowd-voted skip of the now-playing song
+  app.post(
+    '/api/queue-items/:queueItemId/skip-vote',
+    async (request: FastifyRequest<{ Params: { queueItemId: string } }>, reply) => {
+      try {
+        const userId = await resolveUserId(request, repository);
+        return await service.castCrowdSkipVote({
+          queueItemId: request.params.queueItemId,
+          userId,
+        });
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    },
+  );
 }
 
 async function resolveUserId(

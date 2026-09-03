@@ -17,8 +17,9 @@ import type {
   VenueId,
   VoteDirection,
 } from '@openaux/shared';
-import type { ScoringWeights } from '@openaux/shared';
+import type { ScoringWeights, ScoringWeightsV1 } from '@openaux/shared';
 import type { VoteCounterDelta } from './votes.js';
+import type { ScoringModel } from './ranking.js';
 
 /** Venue config the queue core needs (subset of the venues row). */
 export interface VenueConfig {
@@ -30,6 +31,13 @@ export interface VenueConfig {
   blockedGenres: string[];
   blockedArtists: string[];
   scoringWeightsOverride: Partial<ScoringWeights> | null;
+  /**
+   * V1 capped-model per-venue weight overrides (SPEC.md §4 V1+). Null/undefined → V1
+   * defaults. Only consulted when `scoringModel` is 'v1'.
+   */
+  scoringWeightsOverrideV1?: Partial<ScoringWeightsV1> | null;
+  /** Which scoring model the ranking loop runs under for this venue. Defaults to 'v0'. */
+  scoringModel?: ScoringModel;
   fallbackPlaylist: string[];
 }
 
@@ -82,6 +90,20 @@ export interface QueueRepository {
 
   markPlaying(queueItemId: QueueItemId): Promise<QueueItem | null>;
   markFinished(queueItemId: QueueItemId, status: 'played' | 'skipped'): Promise<void>;
+
+  // -------------------------------------------------------------------------
+  // Playability / crowd-skip (SPEC.md §5 V1)
+  // -------------------------------------------------------------------------
+
+  /** Count of active sessions at a venue — the denominator for the min-vote gate,
+   * demand override, and crowd-skip threshold. */
+  getActiveUserCount(venueId: VenueId): Promise<number>;
+
+  /** Has this user already crowd-skip-voted the given (currently-playing) item? */
+  hasCrowdSkipVoted(queueItemId: QueueItemId, userId: UserId): Promise<boolean>;
+  /** Record a user's crowd-skip vote (idempotency guard) and increment the item's
+   * denormalized crowd_skip_votes tally, returning the updated row. */
+  recordCrowdSkipVote(queueItemId: QueueItemId, userId: UserId): Promise<QueueItem>;
 
   /** Bump session request bookkeeping after a successful request (WS1 owns sessions,
    * but the queue increments the counters it gates on transactionally at request time). */
@@ -201,8 +223,8 @@ function mapSession(row: SessionRow): Session {
 const QUEUE_ITEM_COLUMNS = `
   queue_item_id, venue_id, song_id, provider, requesting_user_id, created_at, status,
   upvotes_count, downvotes_count, unique_supporter_count, priority_boost_count,
-  instant_vote_count, super_boost_count, explicit_flag, genre, artist, title,
-  is_duplicate_locked, last_score_calculated_at, current_score, playability_state,
+  instant_vote_count, super_boost_count, crowd_skip_votes, explicit_flag, genre, artist,
+  title, is_duplicate_locked, last_score_calculated_at, current_score, playability_state,
   playability_reason, source_type, played_at`;
 
 export class PostgresQueueRepository implements QueueRepository {
@@ -217,7 +239,41 @@ export class PostgresQueueRepository implements QueueRepository {
   // promote this to a real column (e.g. venues.forced_next_queue_item_id) instead.
   private readonly forcedNextByVenue = new Map<VenueId, QueueItemId>();
 
+  // Crowd-skip idempotency (SPEC.md §5 V1): one skip-vote per user per playing item. Kept
+  // in-memory for the same reason as forcedNextByVenue — there is no per-user skip-vote
+  // table in the schema (contract-frozen; adding one is a deliberate schema change out of
+  // scope here), and the guard is short-lived: it only needs to hold for the duration of a
+  // single now-playing song, which a crowd-skip terminates. The durable tally lives in the
+  // queue_items.crowd_skip_votes column; this set just de-dupes concurrent voters. Assumes
+  // a single server process (already true elsewhere, e.g. forcedNextByVenue). Keyed by
+  // queueItemId so a fresh song starts with a clean slate.
+  private readonly crowdSkipVotersByItem = new Map<QueueItemId, Set<UserId>>();
+
   constructor(private readonly pool: Pool) {}
+
+  async getActiveUserCount(venueId: VenueId): Promise<number> {
+    const { rows } = await this.pool.query(
+      `select count(*)::int as n from sessions where venue_id = $1 and is_active`,
+      [venueId],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
+  async hasCrowdSkipVoted(queueItemId: QueueItemId, userId: UserId): Promise<boolean> {
+    return this.crowdSkipVotersByItem.get(queueItemId)?.has(userId) ?? false;
+  }
+
+  async recordCrowdSkipVote(queueItemId: QueueItemId, userId: UserId): Promise<QueueItem> {
+    const voters = this.crowdSkipVotersByItem.get(queueItemId) ?? new Set<UserId>();
+    voters.add(userId);
+    this.crowdSkipVotersByItem.set(queueItemId, voters);
+    const { rows } = await this.pool.query(
+      `update queue_items set crowd_skip_votes = crowd_skip_votes + 1
+         where queue_item_id = $1 returning ${QUEUE_ITEM_COLUMNS}`,
+      [queueItemId],
+    );
+    return mapQueueItem(rows[0]);
+  }
 
   async setForcedNextItem(venueId: VenueId, queueItemId: QueueItemId): Promise<void> {
     this.forcedNextByVenue.set(venueId, queueItemId);
