@@ -9,9 +9,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { QueueItem } from '@openaux/shared';
-import type { CreditsLedgerEntry } from './domain-rows.js';
+import type { CreditsLedgerEntry, PaymentType } from './domain-rows.js';
+import { REFUNDABLE_BOOST_TYPES, type BoostCountColumn } from './boost-catalog.js';
 import {
   UniqueViolationError,
+  type BoostCodeRow,
   type InsertLedgerEntry,
   type InsertPaymentEvent,
   type PaymentEventRow,
@@ -22,11 +24,23 @@ import {
   type VenuePayoutGross,
 } from './repo.js';
 
+/** queue_items boost tally column → the QueueItem field the in-memory row uses. */
+const COUNT_FIELD: Record<BoostCountColumn, 'priorityBoostCount' | 'instantVoteCount' | 'superBoostCount'> = {
+  priority_boost_count: 'priorityBoostCount',
+  instant_vote_count: 'instantVoteCount',
+  super_boost_count: 'superBoostCount',
+};
+
+/** Refundable boost types as a Set for O(1) membership in the in-memory repo. */
+const REFUNDABLE_SET: ReadonlySet<PaymentType> = new Set(REFUNDABLE_BOOST_TYPES);
+
 export class InMemoryPaymentsRepo implements PaymentsRepo, PaymentsTx {
   readonly users = new Map<string, UserRow>();
   readonly queueItems = new Map<string, QueueItem>();
   readonly paymentEvents: PaymentEventRow[] = [];
   readonly ledger: CreditsLedgerEntry[] = [];
+  /** Boost codes keyed by their code string (WS4 generates; we redeem). */
+  readonly boostCodes = new Map<string, BoostCodeRow>();
   /** Count of withTx invocations — lets tests assert atomic-block usage. */
   txCount = 0;
 
@@ -82,6 +96,23 @@ export class InMemoryPaymentsRepo implements PaymentsRepo, PaymentsTx {
       crowdSkipVotes: item.crowdSkipVotes ?? 0,
     };
     this.queueItems.set(row.queueItemId, row);
+    return row;
+  }
+
+  seedBoostCode(
+    code: Partial<BoostCodeRow> & { code: string; venueId: string },
+  ): BoostCodeRow {
+    const row: BoostCodeRow = {
+      boostCodeId: code.boostCodeId ?? randomUUID(),
+      code: code.code,
+      venueId: code.venueId,
+      tier: code.tier ?? 'beer',
+      creditValue: code.creditValue ?? 1,
+      expiresAt: code.expiresAt ?? new Date(Date.now() + 30 * 60_000),
+      redeemedBy: code.redeemedBy ?? null,
+      redeemedAt: code.redeemedAt ?? null,
+    };
+    this.boostCodes.set(row.code, row);
     return row;
   }
 
@@ -203,9 +234,24 @@ export class InMemoryPaymentsRepo implements PaymentsRepo, PaymentsTx {
     return next;
   }
 
-  async incrementPriorityBoostCount(queueItemId: string): Promise<void> {
+  async incrementBoostCount(queueItemId: string, column: BoostCountColumn): Promise<void> {
     const q = this.queueItems.get(queueItemId);
-    if (q) q.priorityBoostCount += 1;
+    if (q) q[COUNT_FIELD[column]] += 1;
+  }
+
+  async findCompletedBoostForItem(
+    userId: string,
+    queueItemId: string,
+    paymentType: PaymentType,
+  ): Promise<PaymentEventRow | null> {
+    const e = this.paymentEvents.find(
+      (p) =>
+        p.userId === userId &&
+        p.queueItemId === queueItemId &&
+        p.paymentType === paymentType &&
+        p.status === 'completed',
+    );
+    return e ? { ...e } : null;
   }
 
   async findRefundableBoosts(queueItemId: string): Promise<PaymentEventRow[]> {
@@ -213,10 +259,27 @@ export class InMemoryPaymentsRepo implements PaymentsRepo, PaymentsTx {
       .filter(
         (p) =>
           p.queueItemId === queueItemId &&
-          p.paymentType === 'priority_boost' &&
+          REFUNDABLE_SET.has(p.paymentType) &&
           p.status === 'completed' &&
           p.refundStatus === 'none',
       )
       .map((p) => ({ ...p }));
+  }
+
+  async lockBoostCodeByCode(code: string): Promise<BoostCodeRow | null> {
+    const c = this.boostCodes.get(code);
+    return c ? { ...c } : null;
+  }
+
+  async markBoostCodeRedeemed(
+    boostCodeId: string,
+    userId: string,
+    redeemedAt: Date,
+  ): Promise<boolean> {
+    const c = [...this.boostCodes.values()].find((b) => b.boostCodeId === boostCodeId);
+    if (!c || c.redeemedBy !== null) return false;
+    c.redeemedBy = userId;
+    c.redeemedAt = redeemedAt;
+    return true;
   }
 }

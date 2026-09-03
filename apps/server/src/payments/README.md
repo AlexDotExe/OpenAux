@@ -6,10 +6,33 @@ Boost purchases, auto-refunds, and 70/30 revenue accounting.
 ## Endpoints (CONTRACTS.md / api.ts)
 
 - `POST /api/credits/purchase` — buy a credit bundle (Stripe PaymentIntent).
-- `POST /api/queue-items/:queueItemId/boosts` — buy a Priority Boost (V0).
+- `POST /api/queue-items/:queueItemId/boosts` — buy a Priority Boost ($1) or an
+  Instant Play Vote ($3, V1). Super Boost stays gated for V2.
+- `POST /api/boost-codes/redeem` — redeem a venue-issued Boost Code for credits (D7).
 
 Register via `registerPaymentRoutes(app)` from `index.ts`. Do NOT edit
 `apps/server/src/index.ts` — the maintainer wires plugins at merge time.
+
+### Boosts & availability
+
+`boost-catalog.ts` is the single source of truth: each boost has an `available`
+flag (Priority Boost + Instant Play Vote true; Super Boost false) and a
+`countColumn` (`priority_boost_count` / `instant_vote_count` / `super_boost_count`).
+`purchaseBoost` debits `creditCost`, writes a `payment_events` row of the matching
+`payment_type`, a `credits_ledger` debit, increments the boost's count column, and
+emits `boost_purchased`. The 1-per-song-per-user limit is enforced by the partial
+unique index for `priority_boost` and by an in-transaction check (under the queue
+item lock) for the index-less types.
+
+### Boost Codes (D7)
+
+WS4 venue owns generation + the `tier`/`credit_value`/`expires_at` columns of
+`boost_codes`; settlement only **reads** a code (`SELECT ... FOR UPDATE by code`)
+and **stamps** `redeemed_by` / `redeemed_at`. Redemption validates
+invalid/expired/already-redeemed, then credits the patron (`payment_events`
+`promo_code_redemption` + `credits_ledger`), marks the code single-use, and emits
+`promo_code_redeemed`. Idempotent via `idempotency_key`; single-use via the row
+lock + `redeemed_by is null` guard.
 
 ## Design
 
@@ -24,8 +47,9 @@ Register via `registerPaymentRoutes(app)` from `index.ts`. Do NOT edit
 - **Boost limit** (1 per song per user) is backed by the partial unique index
   `payment_events_one_priority_boost`; a conflict maps to `boost_limit_reached`.
 - **Refunds (D14):** `PaymentsService.settleQueueItem(queueItemId, finalStatus)` — when a
-  boosted item ends `expired|skipped|blocked` it auto-refunds each boost to the payer's
-  credit (`reason 'refund'`, `refund_status 'refunded_to_credit'`), emits `refund_issued`.
+  boosted item ends `expired|skipped|blocked` it auto-refunds each paid boost
+  (`priority_boost`, `instant_play_vote`, `super_boost`) to the payer's credit
+  (`reason 'refund'`, `refund_status 'refunded_to_credit'`), emits `refund_issued`.
   Idempotent: only `refund_status='none'` boosts are refunded.
 - **Rev-share (D15):** `computeRevSplit(cents)` splits 70/30, sub-cent remainder to the
   venue. `PaymentsService.venuePayouts()` aggregates completed cash purchases per venue.

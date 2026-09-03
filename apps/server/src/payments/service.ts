@@ -15,7 +15,7 @@
  *  - Money is integer cents; credits are integers. No floats touch the DB.
  *  - Network calls to the gateway happen OUTSIDE the DB transaction.
  */
-import type { QueueItemStatus } from '@openaux/shared';
+import type { BoostCodeTier, QueueItemStatus } from '@openaux/shared';
 import { getBundle, isBundleAllowedForGuest } from './bundles.js';
 import { getBoostDef, type BoostType } from './boost-catalog.js';
 import { computeRevSplit, DEFAULT_VENUE_SHARE_BPS } from './rev-split.js';
@@ -60,6 +60,20 @@ export interface PurchaseBoostResult {
 export interface SettleResult {
   refundedCount: number;
   refundedCredits: number;
+}
+
+export interface RedeemBoostCodeInput {
+  userId: string;
+  code: string;
+  idempotencyKey: string;
+  /** Redemption clock; defaults to now (injectable for deterministic tests). */
+  now?: Date;
+}
+
+export interface RedeemBoostCodeResult {
+  tier: BoostCodeTier;
+  creditsAdded: number;
+  creditBalance: number;
 }
 
 export interface VenuePayout {
@@ -193,10 +207,10 @@ export class PaymentsService {
   // -------------------------------------------------------------------------
   async purchaseBoost(input: PurchaseBoostInput): Promise<PurchaseBoostResult> {
     const def = getBoostDef(input.boostType);
-    if (!def.availableInV0) {
+    if (!def.available) {
       throw new PaymentsError(
         'boost_type_unavailable',
-        `${def.label} is not available yet. V0 supports Priority Boost only.`,
+        `${def.label} is not available yet.`,
       );
     }
 
@@ -223,7 +237,23 @@ export class PaymentsService {
       if (user.creditBalance < def.creditCost) {
         throw new PaymentsError(
           'insufficient_credits',
-          `Priority Boost costs ${def.creditCost} credit(s); balance is ${user.creditBalance}.`,
+          `${def.label} costs ${def.creditCost} credit(s); balance is ${user.creditBalance}.`,
+        );
+      }
+
+      // 1-per-song-per-user limit. priority_boost is also backed by a partial
+      // unique index (the backstop for concurrent inserts below); the other
+      // boost types have no dedicated index, so this in-tx check under the item
+      // lock is their authority.
+      const existing = await tx.findCompletedBoostForItem(
+        input.userId,
+        item.queueItemId,
+        input.boostType,
+      );
+      if (existing) {
+        throw new PaymentsError(
+          'boost_limit_reached',
+          `You have already applied ${def.label} to this song (limit 1 per song).`,
         );
       }
 
@@ -233,7 +263,7 @@ export class PaymentsService {
           userId: input.userId,
           venueId: item.venueId,
           queueItemId: item.queueItemId,
-          paymentType: 'priority_boost',
+          paymentType: input.boostType,
           creditAmount: def.creditCost,
           cashAmountCents: 0,
           status: 'completed',
@@ -264,16 +294,17 @@ export class PaymentsService {
       await tx.insertLedgerEntry({
         userId: input.userId,
         delta: -def.creditCost,
-        reason: 'priority_boost',
+        reason: input.boostType,
         paymentEventId: payment.paymentEventId,
       });
       const creditBalance = await tx.applyCreditDelta(input.userId, -def.creditCost);
-      await tx.incrementPriorityBoostCount(item.queueItemId);
+      await tx.incrementBoostCount(item.queueItemId, def.countColumn);
 
       return {
         replay: false,
         creditBalance,
-        priorityBoostCount: item.priorityBoostCount + 1,
+        priorityBoostCount:
+          item.priorityBoostCount + (input.boostType === 'priority_boost' ? 1 : 0),
         venueId: item.venueId,
       };
     });
@@ -349,6 +380,117 @@ export class PaymentsService {
     return {
       refundedCount: refunded.length,
       refundedCredits: refunded.reduce((sum, b) => sum + b.creditAmount, 0),
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Boost Code redemption — POST /api/boost-codes/redeem (D7)
+  // -------------------------------------------------------------------------
+  /**
+   * Redeem a venue-issued Boost Code for credits. Validates the code (invalid /
+   * expired / already redeemed), then in one transaction credits the patron
+   * (payment_event 'promo_code_redemption' + credits_ledger) and stamps the code
+   * redeemed. Idempotent via idempotency_key; single-use via the code lock +
+   * redeemed_by guard. Emits `promo_code_redeemed`.
+   */
+  async redeemBoostCode(input: RedeemBoostCodeInput): Promise<RedeemBoostCodeResult> {
+    const now = input.now ?? new Date();
+
+    const outcome = await this.repo.withTx(async (tx) => {
+      const code = await tx.lockBoostCodeByCode(input.code);
+
+      // Idempotent replay: a completed redemption already used this key.
+      const prior = await tx.findCompletedByIdempotencyKey(input.idempotencyKey);
+      if (prior) {
+        const u = await tx.lockUser(input.userId);
+        return {
+          replay: true,
+          tier: code?.tier ?? ('beer' as BoostCodeTier),
+          creditsAdded: prior.creditAmount,
+          creditBalance: u?.creditBalance ?? 0,
+          venueId: prior.venueId,
+        };
+      }
+
+      if (!code) {
+        throw new PaymentsError('boost_code_invalid', 'That code is not valid.');
+      }
+      if (code.redeemedBy !== null) {
+        throw new PaymentsError('boost_code_already_redeemed', 'That code has already been redeemed.');
+      }
+      if (code.expiresAt.getTime() <= now.getTime()) {
+        throw new PaymentsError('boost_code_expired', 'That code has expired.');
+      }
+
+      const user = await tx.lockUser(input.userId);
+      if (!user) throw new PaymentsError('unauthorized', 'No such user.');
+
+      let payment: PaymentEventRow;
+      try {
+        payment = await tx.insertPaymentEvent({
+          userId: input.userId,
+          venueId: code.venueId,
+          queueItemId: null,
+          paymentType: 'promo_code_redemption',
+          creditAmount: code.creditValue,
+          cashAmountCents: 0,
+          status: 'completed',
+          idempotencyKey: input.idempotencyKey,
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          // Lost the race on idempotency_key → replay the winner's balance.
+          const u = await tx.lockUser(input.userId);
+          return {
+            replay: true,
+            tier: code.tier,
+            creditsAdded: code.creditValue,
+            creditBalance: u?.creditBalance ?? user.creditBalance,
+            venueId: code.venueId,
+          };
+        }
+        throw err;
+      }
+
+      await tx.insertLedgerEntry({
+        userId: input.userId,
+        delta: code.creditValue,
+        reason: 'promo_code_redemption',
+        paymentEventId: payment.paymentEventId,
+      });
+      const creditBalance = await tx.applyCreditDelta(input.userId, code.creditValue);
+
+      // Single-use stamp. The FOR UPDATE lock + redeemed_by check above make this
+      // succeed; a false return means a concurrent redemption won — throw to roll
+      // back the credit we just wrote.
+      const marked = await tx.markBoostCodeRedeemed(code.boostCodeId, input.userId, now);
+      if (!marked) {
+        throw new PaymentsError('boost_code_already_redeemed', 'That code has already been redeemed.');
+      }
+
+      return {
+        replay: false,
+        tier: code.tier,
+        creditsAdded: code.creditValue,
+        creditBalance,
+        venueId: code.venueId,
+      };
+    });
+
+    if (!outcome.replay) {
+      this.analytics.emit({
+        eventType: 'promo_code_redeemed',
+        actorUserId: input.userId,
+        venueId: outcome.venueId,
+        queueItemId: null,
+        metadata: { tier: outcome.tier, credits: outcome.creditsAdded },
+      });
+    }
+
+    return {
+      tier: outcome.tier,
+      creditsAdded: outcome.creditsAdded,
+      creditBalance: outcome.creditBalance,
     };
   }
 
