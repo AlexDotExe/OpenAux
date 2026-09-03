@@ -295,6 +295,121 @@ describe('mockApiClient', () => {
     });
   });
 
+  describe('crowdSkipVote', () => {
+    it('increments the tally, is idempotent per session, and publishes an update event', async () => {
+      const client = createMockApiClient();
+      const { session } = await join(client);
+      const auth: AuthContext = { sessionId: session.sessionId };
+      const snapshot = await client.getQueue(VENUE_ID);
+      const nowPlayingId = snapshot.nowPlaying!.queueItemId;
+
+      const events: RealtimeEvent[] = [];
+      const unsubscribe = mockEventBus.subscribe(VENUE_ID, (e) => events.push(e));
+
+      const res = await client.crowdSkipVote(nowPlayingId, auth);
+      expect(res.crowdSkipVotes).toBe(1);
+      expect(res.skipped).toBe(false);
+      expect(events.some((e) => e.type === 'crowd_skip_vote_update')).toBe(true);
+
+      await expect(client.crowdSkipVote(nowPlayingId, auth)).rejects.toMatchObject({
+        code: 'already_skip_voted',
+      });
+
+      unsubscribe();
+    });
+
+    it('skips the song and emits song_crowd_skipped once the threshold is reached', async () => {
+      const client = createMockApiClient();
+      const snapshot = await client.getQueue(VENUE_ID);
+      const nowPlayingId = snapshot.nowPlaying!.queueItemId;
+
+      const events: RealtimeEvent[] = [];
+      const unsubscribe = mockEventBus.subscribe(VENUE_ID, (e) => events.push(e));
+
+      let skipped = false;
+      // Five distinct sessions vote to skip (CROWD_SKIP_THRESHOLD = 5).
+      for (let i = 0; i < 5; i += 1) {
+        const { session } = await join(client);
+        const res = await client.crowdSkipVote(nowPlayingId, { sessionId: session.sessionId });
+        skipped = res.skipped;
+      }
+      unsubscribe();
+
+      expect(skipped).toBe(true);
+      expect(events.some((e) => e.type === 'song_crowd_skipped')).toBe(true);
+      const after = await client.getQueue(VENUE_ID);
+      expect(after.nowPlaying?.queueItemId).not.toBe(nowPlayingId);
+    });
+  });
+
+  describe('power hour', () => {
+    it('activates a window, reflects it on getVenue, and publishes power_hour_activated', async () => {
+      const client = createMockApiClient();
+      const events: RealtimeEvent[] = [];
+      const unsubscribe = mockEventBus.subscribe(VENUE_ID, (e) => events.push(e));
+
+      const res = await client.activatePowerHour(
+        VENUE_ID,
+        { genre: 'hip-hop', multiplier: 2, durationMinutes: 15 },
+        { venueAdminToken: ADMIN_TOKEN },
+      );
+      unsubscribe();
+
+      expect(res.powerHour.genre).toBe('hip-hop');
+      expect(events.some((e) => e.type === 'power_hour_activated')).toBe(true);
+      const venue = await client.getVenue(VENUE_ID);
+      expect(venue.powerHour?.genre).toBe('hip-hop');
+    });
+
+    it('rejects activation without a valid admin token', async () => {
+      const client = createMockApiClient();
+      await expect(
+        client.activatePowerHour(VENUE_ID, { genre: 'pop', multiplier: 2, durationMinutes: 15 }, {}),
+      ).rejects.toMatchObject({ code: 'unauthorized' });
+    });
+  });
+
+  describe('boost codes', () => {
+    it('generates a code with the tier credit value and lists it', async () => {
+      const client = createMockApiClient();
+      const auth: AuthContext = { venueAdminToken: ADMIN_TOKEN };
+
+      const gen = await client.generateBoostCode(VENUE_ID, { tier: 'cocktail' }, auth);
+      expect(gen.boostCode.creditValue).toBe(2);
+      expect(gen.boostCode.redeemedBy).toBeNull();
+
+      const list = await client.listBoostCodes(VENUE_ID, auth);
+      expect(list.boostCodes.some((c) => c.code === gen.boostCode.code)).toBe(true);
+    });
+
+    it('lets a patron redeem a code for credits, then rejects re-use', async () => {
+      const client = createMockApiClient();
+      const gen = await client.generateBoostCode(
+        VENUE_ID,
+        { tier: 'bottle' },
+        { venueAdminToken: ADMIN_TOKEN },
+      );
+      const { session } = await join(client);
+      const auth: AuthContext = { sessionId: session.sessionId };
+
+      const res = await client.redeemBoostCode({ code: gen.boostCode.code }, auth);
+      expect(res.creditsAdded).toBe(10);
+      expect(res.creditBalance).toBe(15); // guests seed with 5 credits + bottle 10
+
+      await expect(client.redeemBoostCode({ code: gen.boostCode.code }, auth)).rejects.toMatchObject(
+        { code: 'boost_code_already_redeemed' },
+      );
+    });
+
+    it('rejects an unknown code', async () => {
+      const client = createMockApiClient();
+      const { session } = await join(client);
+      await expect(
+        client.redeemBoostCode({ code: 'NOPE-1' }, { sessionId: session.sessionId }),
+      ).rejects.toMatchObject({ code: 'boost_code_invalid' });
+    });
+  });
+
   describe('createOverride', () => {
     it('sets the override track as now playing immediately when when="now"', async () => {
       const client = createMockApiClient();
