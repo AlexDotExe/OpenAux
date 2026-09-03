@@ -24,14 +24,18 @@ import {
   type AdminTokenProvider,
   type VenueAdminVerify,
 } from './auth.js';
+import { PostgresBoostCodeRepository } from './boost-code-repository.js';
+import { registerBoostCodesRoutes } from './boost-codes.js';
 import { registerFallbackPlaylistRoute } from './fallback-playlist.js';
 import { registerOverridesRoute } from './overrides.js';
+import { registerPowerHourRoute } from './power-hour.js';
 import { PostgresVenueRepository } from './repository.js';
 import { registerSettingsRoute } from './settings.js';
 import { registerSkipRoute } from './skip.js';
 import { registerVenueReadRoutes } from './venue-read.js';
 import type {
   AnalyticsSink,
+  BoostCodeRepository,
   Broadcaster,
   MusicProviderResolver,
   QueueControl,
@@ -41,8 +45,10 @@ import type {
 export type {
   AnalyticsSink,
   AnthemConfig,
+  BoostCodeRepository,
   Broadcaster,
   MusicProviderResolver,
+  PowerHourRecord,
   QueueControl,
   VenueRepository,
   VenueRouteContext,
@@ -53,6 +59,7 @@ export type { AdminTokenProvider } from './auth.js';
 
 export interface VenueRoutesOptions {
   repository?: VenueRepository;
+  boostCodeRepository?: BoostCodeRepository;
   analytics?: AnalyticsSink;
   /** WS3 seam — see types.ts QueueControl doc. TODO: maintainer must inject the real engine. */
   queueControl?: QueueControl;
@@ -85,6 +92,7 @@ export const registerVenueRoutes: FastifyPluginAsync<VenueRoutesOptions> = async
   opts: VenueRoutesOptions,
 ) => {
   const repository = opts.repository ?? new PostgresVenueRepository(pool);
+  const boostCodeRepository = opts.boostCodeRepository ?? new PostgresBoostCodeRepository(pool);
   const analytics = opts.analytics ?? new PostgresAnalyticsSink(pool);
   const queueControl = opts.queueControl ?? noopQueueControl;
   const broadcaster = opts.broadcaster ?? noopBroadcaster;
@@ -95,6 +103,7 @@ export const registerVenueRoutes: FastifyPluginAsync<VenueRoutesOptions> = async
 
   const ctx = {
     repository,
+    boostCodeRepository,
     analytics,
     queueControl,
     broadcaster,
@@ -109,6 +118,8 @@ export const registerVenueRoutes: FastifyPluginAsync<VenueRoutesOptions> = async
   registerSkipRoute(app, ctx);
   registerFallbackPlaylistRoute(app, ctx);
   registerAnthemRoute(app, ctx);
+  registerPowerHourRoute(app, ctx);
+  registerBoostCodesRoutes(app, ctx);
 };
 
 /**

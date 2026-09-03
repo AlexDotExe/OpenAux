@@ -10,10 +10,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { GetFallbackPlaylistResponse, VenueSummary } from '@openaux/shared';
 import { errorResponse } from './errors.js';
+import { reconcilePowerHourOnRead } from './power-hour.js';
 import type { VenueRouteContext } from './types.js';
 
 export function registerVenueReadRoutes(app: FastifyInstance, ctx: VenueRouteContext): void {
   app.get<{ Params: { venueId: string } }>('/api/venues/:venueId', async (request, reply) => {
+    // Lazy Power Hour expiry: if a stored window has elapsed, clear it and
+    // broadcast power_hour_ended before rendering the (now null) summary.
+    await reconcilePowerHourOnRead(ctx, request.params.venueId, new Date());
     const summary = await ctx.repository.getVenueSummary(request.params.venueId);
     if (!summary) {
       return reply.code(404).send(errorResponse('not_found', 'venue not found'));

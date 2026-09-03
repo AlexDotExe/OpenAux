@@ -21,7 +21,13 @@ import type {
   VenueId,
   VenueSummary,
 } from '@openaux/shared';
-import type { AnthemConfig, VenueRepository, VenueSettingsRecord } from './types.js';
+import { powerHourStateAt } from './power-hour-logic.js';
+import type {
+  AnthemConfig,
+  PowerHourRecord,
+  VenueRepository,
+  VenueSettingsRecord,
+} from './types.js';
 
 interface QueueItemRow {
   queue_item_id: string;
@@ -176,8 +182,12 @@ export class PostgresVenueRepository implements VenueRepository {
       block_explicit: boolean;
       blocked_genres: string[];
       blocked_artists: string[];
+      power_hour_genre: string | null;
+      power_hour_multiplier: string | number | null;
+      power_hour_ends_at: Date | null;
     }>(
-      `select venue_id, name, music_provider, control_mode, qr_token, block_explicit, blocked_genres, blocked_artists
+      `select venue_id, name, music_provider, control_mode, qr_token, block_explicit, blocked_genres, blocked_artists,
+              power_hour_genre, power_hour_multiplier, power_hour_ends_at
        from venues where venue_id = $1`,
       [venueId],
     );
@@ -192,8 +202,65 @@ export class PostgresVenueRepository implements VenueRepository {
       blockExplicit: row.block_explicit,
       blockedGenres: row.blocked_genres,
       blockedArtists: row.blocked_artists,
-      powerHour: null,
+      // Compute the live window on read (no background timer): expired columns read as null.
+      powerHour: powerHourStateAt(
+        {
+          genre: row.power_hour_genre,
+          multiplier:
+            row.power_hour_multiplier === null ? null : Number(row.power_hour_multiplier),
+          endsAt: row.power_hour_ends_at,
+        },
+        new Date(),
+      ),
     };
+  }
+
+  async setPowerHour(venueId: VenueId, record: PowerHourRecord): Promise<void> {
+    await this.pool.query(
+      `update venues set
+         power_hour_genre = $2,
+         power_hour_multiplier = $3,
+         power_hour_ends_at = $4
+       where venue_id = $1`,
+      [venueId, record.genre, record.multiplier, record.endsAt],
+    );
+  }
+
+  async getPowerHour(venueId: VenueId): Promise<PowerHourRecord | null> {
+    const { rows } = await this.pool.query<{
+      power_hour_genre: string | null;
+      power_hour_multiplier: string | number | null;
+      power_hour_ends_at: Date | null;
+    }>(
+      `select power_hour_genre, power_hour_multiplier, power_hour_ends_at
+       from venues where venue_id = $1`,
+      [venueId],
+    );
+    const row = rows[0];
+    if (
+      !row ||
+      row.power_hour_genre === null ||
+      row.power_hour_multiplier === null ||
+      row.power_hour_ends_at === null
+    ) {
+      return null;
+    }
+    return {
+      genre: row.power_hour_genre,
+      multiplier: Number(row.power_hour_multiplier),
+      endsAt: row.power_hour_ends_at,
+    };
+  }
+
+  async clearPowerHour(venueId: VenueId): Promise<void> {
+    await this.pool.query(
+      `update venues set
+         power_hour_genre = null,
+         power_hour_multiplier = null,
+         power_hour_ends_at = null
+       where venue_id = $1`,
+      [venueId],
+    );
   }
 
   async getFallbackPlaylist(venueId: VenueId): Promise<string[]> {
