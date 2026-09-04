@@ -48,6 +48,8 @@ function makeGuestUser(id: string): User {
     downvotesReceived: 0,
     spamAttempts: 0,
     songsSkipped: 0,
+    songsPlayed: 0,
+    timeInVenueSeconds: 0,
     createdAt: new Date('2026-01-01T00:00:00Z'),
   };
 }
@@ -91,6 +93,8 @@ function makeRepository(over: Partial<SessionRepository> = {}): SessionRepositor
       downvotesReceived: 0,
       spamAttempts: 0,
       songsSkipped: 0,
+      songsPlayed: 0,
+      timeInVenueSeconds: 0,
       createdAt: new Date('2026-01-01T00:00:00Z'),
     })),
     createSession: vi.fn(

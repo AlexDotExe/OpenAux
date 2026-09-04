@@ -39,6 +39,13 @@ export interface User {
   downvotesReceived: number;
   spamAttempts: number;
   songsSkipped: number;
+  /**
+   * Reputation v2 (SPEC.md §5 V2) — reward all engagement. `songsPlayed`: the
+   * user's requests that actually played; `timeInVenueSeconds`: cumulative active
+   * session time. Both feed reputation_score via the reputation layer.
+   */
+  songsPlayed: number;
+  timeInVenueSeconds: number;
   createdAt: Date;
 }
 

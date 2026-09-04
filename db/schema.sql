@@ -31,6 +31,9 @@ create table users (
   downvotes_received integer not null default 0,
   spam_attempts      integer not null default 0,
   songs_skipped      integer not null default 0,
+  -- Reputation v2 (SPEC.md §5 V2): reward all engagement, not just clean behavior.
+  songs_played           integer not null default 0,
+  time_in_venue_seconds  integer not null default 0,
   created_at      timestamptz not null default now(),
   unique (auth_provider, auth_subject)
 );

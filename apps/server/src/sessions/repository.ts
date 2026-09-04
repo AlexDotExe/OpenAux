@@ -105,6 +105,8 @@ interface UserRow {
   downvotes_received?: number | null;
   spam_attempts?: number | null;
   songs_skipped?: number | null;
+  songs_played?: number | null;
+  time_in_venue_seconds?: number | null;
   created_at: Date;
 }
 
@@ -120,6 +122,8 @@ function mapUser(row: UserRow): User {
     downvotesReceived: row.downvotes_received ?? 0,
     spamAttempts: row.spam_attempts ?? 0,
     songsSkipped: row.songs_skipped ?? 0,
+    songsPlayed: row.songs_played ?? 0,
+    timeInVenueSeconds: row.time_in_venue_seconds ?? 0,
     createdAt: row.created_at,
   };
 }

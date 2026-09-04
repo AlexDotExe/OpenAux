@@ -70,6 +70,13 @@ Realtime channel: `WS /ws/venues/:venueId` — events in `realtime-events.ts`.
 
 ## Changelog
 
+- **2026-09-04** — Reputation v2 counters (schema ↔ domain together, SPEC.md §5 V2):
+  - `users.songs_played integer not null default 0` and
+    `users.time_in_venue_seconds integer not null default 0` added.
+  - `User` gains `songsPlayed` and `timeInVenueSeconds` (mirrors the columns).
+  - Contract-only prep: the reputation layer (`apps/server/src/antispam/reputation.ts`)
+    extends `computeReputationScore` to reward these in a follow-up feature commit.
+
 - **2026-09-04** — V1 scoring-model activation contract follow-up (schema ↔ domain ↔ api):
   - `venues.scoring_model text not null default 'v0'` added, plus optional
     `venues.scoring_weights_override_v1 jsonb`, so venue-scoped V1 activation
