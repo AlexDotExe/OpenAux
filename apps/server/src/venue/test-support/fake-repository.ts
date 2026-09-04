@@ -40,6 +40,7 @@ export class FakeVenueRepository implements VenueRepository {
       blockExplicit: opts.blockExplicit ?? false,
       blockedGenres: opts.blockedGenres ?? [],
       blockedArtists: opts.blockedArtists ?? [],
+      scoringModel: opts.scoringModel ?? 'v0',
     });
     this.musicProviders.set(venueId, opts.musicProvider ?? 'spotify');
   }

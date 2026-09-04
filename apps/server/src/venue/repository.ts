@@ -105,8 +105,9 @@ export class PostgresVenueRepository implements VenueRepository {
       block_explicit: boolean;
       blocked_genres: string[];
       blocked_artists: string[];
+      scoring_model: 'v0' | 'v1';
     }>(
-      `select venue_id, control_mode, block_explicit, blocked_genres, blocked_artists
+      `select venue_id, control_mode, block_explicit, blocked_genres, blocked_artists, scoring_model
        from venues where venue_id = $1`,
       [venueId],
     );
@@ -118,6 +119,7 @@ export class PostgresVenueRepository implements VenueRepository {
       blockExplicit: row.block_explicit,
       blockedGenres: row.blocked_genres,
       blockedArtists: row.blocked_artists,
+      scoringModel: row.scoring_model === 'v1' ? 'v1' : 'v0',
     };
   }
 
@@ -144,6 +146,10 @@ export class PostgresVenueRepository implements VenueRepository {
       values.push(patch.blockedArtists);
       sets.push(`blocked_artists = $${values.length}`);
     }
+    if (patch.scoringModel !== undefined) {
+      values.push(patch.scoringModel);
+      sets.push(`scoring_model = $${values.length}`);
+    }
 
     if (sets.length === 0) {
       return this.getSettings(venueId);
@@ -156,9 +162,10 @@ export class PostgresVenueRepository implements VenueRepository {
       block_explicit: boolean;
       blocked_genres: string[];
       blocked_artists: string[];
+      scoring_model: 'v0' | 'v1';
     }>(
       `update venues set ${sets.join(', ')} where venue_id = $${values.length}
-       returning venue_id, control_mode, block_explicit, blocked_genres, blocked_artists`,
+       returning venue_id, control_mode, block_explicit, blocked_genres, blocked_artists, scoring_model`,
       values,
     );
     const row = rows[0];
@@ -169,6 +176,7 @@ export class PostgresVenueRepository implements VenueRepository {
       blockExplicit: row.block_explicit,
       blockedGenres: row.blocked_genres,
       blockedArtists: row.blocked_artists,
+      scoringModel: row.scoring_model === 'v1' ? 'v1' : 'v0',
     };
   }
 

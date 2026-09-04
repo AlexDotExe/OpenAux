@@ -16,6 +16,8 @@ const VENUE: Venue = {
   blockedGenres: [],
   blockedArtists: [],
   scoringWeightsOverride: null,
+  scoringModel: 'v0',
+  scoringWeightsOverrideV1: null,
   fallbackPlaylist: [],
   anthemProvider: null,
   anthemProviderTrackId: null,

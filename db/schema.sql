@@ -58,6 +58,8 @@ create table venues (
   blocked_genres           text[] not null default '{}',
   blocked_artists          text[] not null default '{}',
   scoring_weights_override jsonb,                -- partial ScoringWeights; null = defaults
+  scoring_model            text not null default 'v0', -- queue ranking model: v0 | v1
+  scoring_weights_override_v1 jsonb,             -- partial ScoringWeightsV1; null = defaults
   fallback_playlist        jsonb not null default '[]', -- ordered provider track ids
   -- Venue anthem + promo (SPEC.md §5 Announcements). Null anthem_provider_track_id = no anthem set.
   anthem_provider               music_provider,

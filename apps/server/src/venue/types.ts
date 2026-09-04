@@ -79,6 +79,7 @@ export interface VenueSettingsRecord {
   blockExplicit: boolean;
   blockedGenres: string[];
   blockedArtists: string[];
+  scoringModel: 'v0' | 'v1';
 }
 
 export interface AnthemConfig {

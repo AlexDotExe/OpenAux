@@ -22,6 +22,16 @@ describe('validateSettingsUpdate', () => {
     expect(result.valid).toBe(false);
   });
 
+  it('accepts scoringModel v1', () => {
+    const result = validateSettingsUpdate({ scoringModel: 'v1' });
+    expect(result).toEqual({ valid: true, patch: { scoringModel: 'v1' } });
+  });
+
+  it('rejects invalid scoringModel', () => {
+    const result = validateSettingsUpdate({ scoringModel: 'v2' as never });
+    expect(result.valid).toBe(false);
+  });
+
   it('trims, drops empties, and dedupes blockedGenres case-insensitively', () => {
     const result = validateSettingsUpdate({
       blockedGenres: [' Country ', 'country', 'Hip-Hop', '', '  '],
@@ -48,6 +58,7 @@ describe('validateSettingsUpdate', () => {
       blockExplicit: false,
       blockedGenres: ['edm'],
       blockedArtists: ['x'],
+      scoringModel: 'v0',
     });
     expect(result).toEqual({
       valid: true,
@@ -56,6 +67,7 @@ describe('validateSettingsUpdate', () => {
         blockExplicit: false,
         blockedGenres: ['edm'],
         blockedArtists: ['x'],
+        scoringModel: 'v0',
       },
     });
   });

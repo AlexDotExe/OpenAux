@@ -70,6 +70,12 @@ export interface Venue {
   scoringWeightsOverride: Partial<
     import("../scoring/index.js").ScoringWeights
   > | null;
+  /** Active queue scoring model for this venue; default 'v0', opt-in 'v1'. */
+  scoringModel: "v0" | "v1";
+  /** V1-only per-venue weight overrides; null = V1 defaults. */
+  scoringWeightsOverrideV1: Partial<
+    import("../scoring/index.js").ScoringWeightsV1
+  > | null;
   /** Ordered provider track ids played when the live queue runs dry (silence fallback). */
   fallbackPlaylist: string[];
   /** Venue anthem + promo (SPEC.md §5). All null when no anthem is configured. */

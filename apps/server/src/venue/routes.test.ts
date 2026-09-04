@@ -154,12 +154,13 @@ describe('PATCH /api/venues/:venueId/settings', () => {
       method: 'PATCH',
       url: `/api/venues/${VENUE_ID}/settings`,
       headers: authHeader(),
-      payload: { controlMode: 'suggestion', blockedGenres: ['country', 'Country'] },
+      payload: { controlMode: 'suggestion', blockedGenres: ['country', 'Country'], scoringModel: 'v1' },
     });
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.venue.controlMode).toBe('suggestion');
     expect(body.venue.blockedGenres).toEqual(['country']);
+    expect(body.venue.scoringModel).toBe('v1');
   });
 
   it('rejects an invalid body', async () => {
