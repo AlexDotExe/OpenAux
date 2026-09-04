@@ -12,6 +12,7 @@
 import type { MusicProvider, Venue } from '@openaux/shared';
 import { pool } from '../db.js';
 import { AppleMusicProvider } from './apple/apple-music-provider.js';
+import { FakeMusicProvider } from './fake/index.js';
 import { SpotifyProvider } from './spotify/spotify-provider.js';
 import { TokenCipher, loadEncryptionKey } from './crypto.js';
 import { PgVenueTokenStore } from './token-store.js';
@@ -80,6 +81,10 @@ export function getProvider(
   venue: Pick<Venue, 'musicProvider'>,
   config?: ProviderFactoryConfig,
 ): MusicProvider {
+  if (process.env.MUSIC_PROVIDER_FAKE === '1') {
+    return new FakeMusicProvider(venue.musicProvider);
+  }
+
   const cfg = { ...readEnvConfig(), ...config };
   const venueTokenStore = cfg.venueTokenStore ?? defaultVenueTokenStore();
   const playbackBridge = cfg.playbackBridge ?? new NoopPlaybackBridge();

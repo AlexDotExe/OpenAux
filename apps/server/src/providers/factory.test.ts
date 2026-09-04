@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppleMusicProvider } from './apple/apple-music-provider.js';
+import { FakeMusicProvider } from './fake/fake-music-provider.js';
 import { getProvider } from './factory.js';
 import { SpotifyProvider } from './spotify/spotify-provider.js';
 
@@ -11,6 +12,10 @@ const { privateKey } = generateKeyPairSync('ec', {
 });
 
 describe('getProvider', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('returns a SpotifyProvider for venue.musicProvider === "spotify"', () => {
     const provider = getProvider(
       { musicProvider: 'spotify' },
@@ -47,5 +52,23 @@ describe('getProvider', () => {
         { appleMusic: { teamId: '', keyId: '', privateKey: '', storefront: 'us' } },
       ),
     ).toThrow(/APPLE_MUSIC_TEAM_ID/);
+  });
+
+  it('returns a FakeMusicProvider when MUSIC_PROVIDER_FAKE=1 for spotify venues', () => {
+    vi.stubEnv('MUSIC_PROVIDER_FAKE', '1');
+
+    const provider = getProvider({ musicProvider: 'spotify' });
+
+    expect(provider).toBeInstanceOf(FakeMusicProvider);
+    expect(provider.id).toBe('spotify');
+  });
+
+  it('returns a FakeMusicProvider when MUSIC_PROVIDER_FAKE=1 for apple venues', () => {
+    vi.stubEnv('MUSIC_PROVIDER_FAKE', '1');
+
+    const provider = getProvider({ musicProvider: 'apple_music' });
+
+    expect(provider).toBeInstanceOf(FakeMusicProvider);
+    expect(provider.id).toBe('apple_music');
   });
 });
