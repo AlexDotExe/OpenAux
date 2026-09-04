@@ -5,6 +5,7 @@
  */
 export { SpotifyProvider, type SpotifyProviderConfig } from './spotify/spotify-provider.js';
 export { AppleMusicProvider, type AppleMusicProviderConfig } from './apple/apple-music-provider.js';
+export { FakeMusicProvider } from './fake/index.js';
 export { getProvider, type ProviderFactoryConfig } from './factory.js';
 export {
   InMemoryVenueTokenStore,
