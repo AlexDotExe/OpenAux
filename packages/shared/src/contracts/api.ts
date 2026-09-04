@@ -240,6 +240,7 @@ export interface UpdateVenueSettingsRequest {
   blockExplicit?: boolean;
   blockedGenres?: string[];
   blockedArtists?: string[];
+  scoringModel?: "v0" | "v1";
 }
 
 /** POST /api/venues/:venueId/overrides — venue plays a track immediately/next. */
@@ -299,6 +300,7 @@ export interface VenueSettingsSummary {
   blockExplicit: boolean;
   blockedGenres: string[];
   blockedArtists: string[];
+  scoringModel: "v0" | "v1";
 }
 
 /** Resolved anthem + promo config. */

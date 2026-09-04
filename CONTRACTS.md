@@ -70,6 +70,16 @@ Realtime channel: `WS /ws/venues/:venueId` — events in `realtime-events.ts`.
 
 ## Changelog
 
+- **2026-09-04** — V1 scoring-model activation contract follow-up (schema ↔ domain ↔ api):
+  - `venues.scoring_model text not null default 'v0'` added, plus optional
+    `venues.scoring_weights_override_v1 jsonb`, so venue-scoped V1 activation
+    and V1 weight overrides are first-class persisted config (not ad-hoc JSON probing).
+  - `Venue` gains `scoringModel` (`'v0' | 'v1'`) and `scoringWeightsOverrideV1`
+    (`Partial<ScoringWeightsV1> | null`) to mirror the `venues` columns.
+  - Venue settings API now carries scoring model selection:
+    `UpdateVenueSettingsRequest.scoringModel?: 'v0' | 'v1'` and
+    `VenueSettingsSummary.scoringModel`.
+
 - **2026-07-24** — Initial contracts: V0 domain model, MusicProvider interface, V0 API
   surface, realtime + analytics events, V0 scoring engine with default weights
   (RequestBase 2, Up 1, Down 1.25, UniqueSupporter 0.5, PriorityBoost 3) and tiebreakers.
