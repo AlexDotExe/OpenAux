@@ -9,12 +9,14 @@ export interface SettingsPatch {
   blockExplicit?: boolean;
   blockedGenres?: string[];
   blockedArtists?: string[];
+  scoringModel?: 'v0' | 'v1';
 }
 
 export type SettingsValidationResult =
   { valid: true; patch: SettingsPatch } | { valid: false; message: string };
 
 const VALID_CONTROL_MODES: ReadonlySet<string> = new Set(['crowd', 'suggestion']);
+const VALID_SCORING_MODELS: ReadonlySet<string> = new Set(['v0', 'v1']);
 
 /** Trims, drops empties, and dedupes case-insensitively (keeps first-seen casing). */
 function normalizeStringList(values: string[]): string[] {
@@ -48,6 +50,9 @@ export function validateSettingsUpdate(body: UpdateVenueSettingsRequest): Settin
   if (body.blockedArtists !== undefined && !isStringArray(body.blockedArtists)) {
     return { valid: false, message: 'blockedArtists must be an array of strings' };
   }
+  if (body.scoringModel !== undefined && !VALID_SCORING_MODELS.has(body.scoringModel)) {
+    return { valid: false, message: 'scoringModel must be "v0" or "v1"' };
+  }
 
   const patch: SettingsPatch = {};
   if (body.controlMode !== undefined) patch.controlMode = body.controlMode;
@@ -56,6 +61,7 @@ export function validateSettingsUpdate(body: UpdateVenueSettingsRequest): Settin
     patch.blockedGenres = normalizeStringList(body.blockedGenres);
   if (body.blockedArtists !== undefined)
     patch.blockedArtists = normalizeStringList(body.blockedArtists);
+  if (body.scoringModel !== undefined) patch.scoringModel = body.scoringModel;
 
   if (Object.keys(patch).length === 0) {
     return { valid: false, message: 'no recognized settings fields provided' };

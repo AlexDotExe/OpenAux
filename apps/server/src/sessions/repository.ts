@@ -41,6 +41,8 @@ interface VenueRow {
   blocked_genres: string[];
   blocked_artists: string[];
   scoring_weights_override: Venue['scoringWeightsOverride'];
+  scoring_model: Venue['scoringModel'];
+  scoring_weights_override_v1: Venue['scoringWeightsOverrideV1'];
   fallback_playlist: string[];
   anthem_provider: MusicProviderId | null;
   anthem_provider_track_id: string | null;
@@ -71,6 +73,8 @@ function mapVenue(row: VenueRow): Venue {
     blockedGenres: row.blocked_genres,
     blockedArtists: row.blocked_artists,
     scoringWeightsOverride: row.scoring_weights_override,
+    scoringModel: row.scoring_model === 'v1' ? 'v1' : 'v0',
+    scoringWeightsOverrideV1: row.scoring_weights_override_v1 ?? null,
     fallbackPlaylist: row.fallback_playlist ?? [],
     anthemProvider: row.anthem_provider,
     anthemProviderTrackId: row.anthem_provider_track_id,
