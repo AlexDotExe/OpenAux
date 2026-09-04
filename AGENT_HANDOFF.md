@@ -4,9 +4,11 @@ This file is the pickup point for any coding agent (GitHub Copilot, etc.) contin
 It is self-contained: read this, then `CLAUDE.md` (binding conventions), `SPEC.md` (product +
 milestones), and `CONTRACTS.md` (contract map) before writing code.
 
-_Last updated: 2026-09-04. V1 is on `main` except Task B (PR #75, in review). §3 routes remaining work by
-agent capability ([COPILOT] = Sonnet-class GitHub Copilot agent; [CLAUDE] = stronger model / human-in-loop);
-§5 is the test plan._
+_Last updated: 2026-09-04. V1 is on `main` except Task B (PR #75, in review). §3 routes the FULL roadmap
+(V1 remainder → test harness → V0 last-mile → V2 → V3 → V4 → V5 → V6) by agent capability
+([COPILOT] = Sonnet-class GitHub Copilot agent; [COPILOT+REVIEW] = Copilot draft + mandatory strong-model
+review; [CLAUDE] = stronger model / human-in-loop for contracts, money, auth, privacy, model design).
+§4 is the sequencing; §5 is the 4-phase test plan._
 
 ---
 
@@ -115,21 +117,80 @@ Work is routed by agent capability. Tags:
 | V2.4 | Crowd Mood dashboard: analytics queries (skip rate, vote velocity, genre engagement) + venue-console panel; read-only, must not block queue ops | [COPILOT] | `apps/server/src/analytics/` + `apps/web/` |
 | V2.5 | Web: Super Boost UI ("Super Boost for $5") mirroring Instant Play Vote UI | [COPILOT] | `apps/web/` |
 
-### 3.5 Deferred / V3+
-Group-abuse via proximity/social graph/correlated voting; venue-abuse dispute system (flagged, 13pts);
-V3–V6 items (Vibe Score, dynamic pricing, label analytics UI, brand promos, leaderboards, Pass the Aux,
-city dashboard, AI Auto Queue, ads). Route each through the same tagging when scheduled — anything touching
-new contracts, money, or auth defaults to [CLAUDE].
+### 3.5 V3 — Social & data products (SPEC.md §5 V3)
+Mostly Copilot-able. The reputation/reaction pieces need a contract commit first (new event types +
+columns). Reactions live in the analytics + realtime layers, never blocking queue ops.
+| # | Task | Tag | Scope |
+|---|------|-----|-------|
+| V3.1a | Contract: add `vibe_reaction` value type (`fire`/`danceable`/`mid`/`skip`), a `song_reaction` analytics event, `SongReactionEvent` + `VibeScoreUpdateEvent` realtime events, and a `song_reactions` table (or reuse votes-style one-row-per-user/song) | [CLAUDE] | contract commit (shared + `db/schema.sql` + `CONTRACTS.md`) |
+| V3.1b | **Vibe Score** backend: `POST /api/queue-items/:id/reactions`, one reaction per user per now-playing song (idempotent, switchable), aggregate to a percentage summary, emit `VibeScoreUpdateEvent`. Pure aggregation + unit tests | [COPILOT] | `apps/server/src/queue/` (or a new `reactions/` module) |
+| V3.1c | **Vibe Score** web: reaction buttons (🔥/🕺/😐/👎) on NowPlaying with floating-emoji animation + live % summary; optional venue-display variant | [COPILOT] | `apps/web/` |
+| V3.2 | **Reputation v3**: extend `computeReputationScore` with `+ crowd reactions on your songs` and `+ unique song requests`. Depends on V3.1a (reactions) landing | [COPILOT] | `apps/server/src/antispam/` (after contract) |
+| V3.3 | **"Beat the Song Above You"** dynamic-pricing UI: compute the price to out-rank the item directly above yours (from the scoring gap → paid-points needed → credits), show "Beat #3 for $1.20". Pricing math is a pure function; **money-adjacent so review before merge** | [COPILOT+REVIEW] | pure calc in `packages/shared` scoring helpers or `payments/`, UI in `apps/web/` |
+| V3.4 | **Label/DJ analytics UI**: read-only dashboards over the analytics event log — most-requested, genre mix, club trends, skip rates, sliceable by geography/time/venue type. Must not block queue ops (read replica / async queries) | [COPILOT] | `apps/server/src/analytics/` queries + `apps/web/` |
+
+### 3.6 V4 — Competition & promotions (SPEC.md §5 V4)
+This is where the **overrides layer** (SPEC §1 layer 4) and **money** get exercised. Brand promos and dynamic
+pricing default to review/Claude; leaderboards and Pass-the-Aux mechanics are Copilot-friendly.
+| # | Task | Tag | Scope |
+|---|------|-----|-------|
+| V4.1 | **Dynamic credit pricing by demand** (active users × engagement) with hard price caps. Money + abuse surface — pricing engine design and caps set by Claude; Copilot may implement once the formula + caps are fixed | [CLAUDE→COPILOT] | `payments/` pricing module |
+| V4.2a | Contract: `brand_promotions` table + `Promotion` type + `PromotionActivatedEvent` realtime + `promotion_activated`/`promotion_redeemed` analytics | [CLAUDE] | contract commit |
+| V4.2b | **Brand promotions** ("Sponsored by Red Bull — free shot at 100 votes"): threshold-triggered override event that fires an announcement + unlock; lives in the overrides layer, decoupled from ranking. Money/sponsor terms → review | [COPILOT+REVIEW] | `apps/server/src/venue/` overrides + `apps/web/` display |
+| V4.3 | **Leaderboard — Top DJs Tonight**: influence-score ranking per venue/geo, windows tonight/weekly/all-time; read-only queries + UI. Rewards *payout* logic (if any) is a separate [CLAUDE] money task | [COPILOT] | `analytics/` + `apps/web/` |
+| V4.4 | **Cross-venue competition** (brand-sponsored rewards): aggregate leaderboards across venues; reward fulfillment = [CLAUDE] money. Aggregation/read = Copilot | [COPILOT+REVIEW] | `analytics/` + `apps/web/` |
+| V4.5a | Contract: `pass_the_aux` state (current holder, window end) + `PassTheAuxEvent` realtime + `pass_the_aux_awarded` analytics | [CLAUDE] | contract commit |
+| V4.5b | **Pass the Aux** (SPEC §9 D9): every ~20 min, random draw among the night's top influence scores; winner gets 1 guaranteed next song via the **overrides layer** (not a ranking hack); "🔥 Alex has the AUX" display. Selection is a pure function (seeded RNG injectable for tests) | [COPILOT] | `apps/server/src/venue/` overrides + `apps/web/` |
+
+### 3.7 V5 — Discovery & profiles (SPEC.md §5 V5)
+Cross-venue/city aggregation + **public-facing profiles** — privacy rules are the sensitive part
+(influence scores must NEVER be public per SPEC), so anything exposing user data gets a review.
+| # | Task | Tag | Scope |
+|---|------|-----|-------|
+| V5.1 | **Live city dashboard**: "Where music is good tonight" (positive-engagement metric designed NOT to crowd out small venues), "Where this genre is popular", "Try this tonight" (influence-incentive for lesser-known venues; some moderated/sponsored). Metric design that resists gaming = [CLAUDE]; the queries + UI once the metric is fixed = Copilot | [CLAUDE→COPILOT] | new `discovery/` module + `apps/web/` |
+| V5.2a | Contract: `user_profiles` (opt-in public fields: genre tastes, top songs/artists; explicit `is_public` flags) — influence score is NOT a public column | [CLAUDE] | contract commit |
+| V5.2b | **Social profiles**, opt-in public: derive genre tastes + most-requested songs/artists from history; enforce that influence/reputation scores are never exposed. **Privacy gate → review mandatory** | [COPILOT+REVIEW] | `apps/server/src/analytics/` + `apps/web/` |
+| V5.3 | **Demographic-tied analytics** for labels/DJs: aggregate-only, k-anonymity threshold before any slice is returned (no re-identification). Privacy-sensitive → Claude designs the anonymity guarantees, Copilot implements queries under them | [CLAUDE→COPILOT] | `analytics/` |
+
+### 3.8 V6 — AI & ads (SPEC.md §5 V6) — mostly NOT Copilot
+| # | Task | Tag | Scope |
+|---|------|-----|-------|
+| V6.1a | **AI Auto Queue — design**: continuity engine blending votes, tempo, genre continuity, key compatibility, crowd reactions, time-of-night, venue preference/location (SPEC D6 defers BPM/energy here). Needs provider audio-features integration + a real model/heuristic design and eval harness — **stronger-model / research task** | [CLAUDE] | design doc + `providers/` audio-features + new `autoqueue/` module |
+| V6.1b | AI Auto Queue — plumbing once the algorithm is specced: fetch audio features via the `MusicProvider` seam, feed the engine, expose as an override/selection strategy behind a venue flag. Mechanical parts only | [COPILOT] | `providers/` + `autoqueue/` |
+| V6.2 | **Ad monetization**: money + policy + external ad partners → Claude/human end to end | [CLAUDE] | `payments/` + `apps/web/` |
+
+### 3.9 Truly deferred (build only when explicitly scheduled)
+Group-abuse via WiFi/BT proximity, social graph, correlated-voting (only arrival-time shipped); venue-abuse
+dispute system (behind a flag, 13pts). Both default to [CLAUDE] design when picked up.
+
+**Routing default for anything not listed:** new contract / money / auth-default / privacy-exposure /
+model-design ⇒ [CLAUDE]; tightly-specced feature mirroring an existing pattern with unit tests and no such
+concern ⇒ [COPILOT]; in between ⇒ [COPILOT+REVIEW].
 
 ---
 
 ## 4. Assignment order (manager's sequencing)
 
-1. **Now, in parallel** (disjoint areas, no conflicts): T1, T2, T3 → Copilot. Task B continues on PR #75.
-2. **After Task B merges**: V2.1a + V2.1b + V2.3 + V2.4 + V2.5 (V2.1a/V2.1b are separate branches but
-   review together), T4 anytime.
-3. **Claude sessions** (batch to save usage credits): Task B review/merge, contract commit for V2.2,
-   L1b/L2, Test Phases 1–2 below, board hygiene (D).
+Principle: **land each milestone's [CLAUDE] contract commit(s) FIRST** (in a batched Claude session), then
+fan out the [COPILOT] features that depend on them in parallel. Keep parallel Copilot tasks in disjoint
+ownership folders to avoid merge conflicts. Batch all [CLAUDE] work per milestone into one session to
+conserve usage credits.
+
+1. **In flight now** (parallel, disjoint): T1, T2, T3 → Copilot; Task B on PR #75.
+2. **After Task B merges**: V2.1a, V2.1b, V2.3, V2.4, V2.5 → Copilot (V2.1a/b review together); T4 anytime.
+   Claude session: contract commit for V2.2, then V2.2 → Copilot.
+3. **V3**: Claude session lands V3.1a contract. Then parallel Copilot: V3.1b, V3.1c, V3.4; V3.2 after V3.1x;
+   V3.3 is [COPILOT+REVIEW].
+4. **V4**: Claude session lands V4.2a + V4.5a contracts (+ V4.1 pricing formula/caps). Then parallel:
+   V4.3, V4.5b → Copilot; V4.1 impl, V4.2b, V4.4 → Copilot+review.
+5. **V5**: Claude designs V5.1 metric + V5.3 anonymity + lands V5.2a contract. Then V5.2b, V5.3 impl →
+   Copilot+review; V5.1 queries/UI → Copilot.
+6. **V6**: Claude does V6.1a design + V6.2 end-to-end; only V6.1b plumbing → Copilot.
+7. **V0 last-mile** (deployment-critical — schedule alongside V2/V3, don't wait): L1a → Copilot+review;
+   L1b, L2 → Claude/human.
+8. **Claude-session batches** (save credits): all contract commits, all PR reviews/merges, L1b/L2/V6.2,
+   Test Phases 1–3, and each milestone's design tasks. Do a batch when 2+ items are queued rather than
+   waking per-item.
 
 ---
 
