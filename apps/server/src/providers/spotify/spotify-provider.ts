@@ -27,6 +27,17 @@ const API_BASE = 'https://api.spotify.com/v1';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const REFRESH_SKEW_MS = 60_000;
 const ARTIST_BATCH_SIZE = 50;
+/**
+ * Spotify documents a search `limit` max of 50, but restricted app tiers reject
+ * anything above 10 with 400 "Invalid limit" — which fails every search. Clamp to
+ * a tier-safe ceiling; operators with full API access can raise it via
+ * SPOTIFY_SEARCH_MAX_LIMIT.
+ */
+const DEFAULT_SEARCH_MAX_LIMIT = 10;
+function searchMaxLimit(): number {
+  const raw = Number(process.env.SPOTIFY_SEARCH_MAX_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? Math.min(raw, 50) : DEFAULT_SEARCH_MAX_LIMIT;
+}
 
 export interface SpotifyProviderConfig {
   clientId: string;
@@ -59,7 +70,7 @@ export class SpotifyProvider implements MusicProvider {
   // -- Catalog ---------------------------------------------------------
 
   async searchTracks(query: string, opts?: { limit?: number }): Promise<Track[]> {
-    const limit = Math.min(opts?.limit ?? 20, 50);
+    const limit = Math.min(opts?.limit ?? 20, searchMaxLimit());
     const params = new URLSearchParams({ q: query, type: 'track', limit: String(limit) });
     const res = await this.appRequest(`${API_BASE}/search?${params.toString()}`);
     const body = (await res.json()) as { tracks: { items: SpotifyTrackJson[] } };
@@ -114,7 +125,12 @@ export class SpotifyProvider implements MusicProvider {
       return res;
     }
     if (!res.ok) {
-      throw new Error(`Spotify API request failed: ${res.status} ${url}`);
+      // Include Spotify's own reason — catalog 4xx bodies ("Invalid limit",
+      // permission errors) are actionable and were previously discarded.
+      const detail = await res.text().catch(() => '');
+      throw new Error(
+        `Spotify API request failed: ${res.status} ${url}${detail ? ` — ${detail}` : ''}`,
+      );
     }
     return res;
   }
