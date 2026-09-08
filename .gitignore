@@ -42,3 +42,6 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
+
+# Next.js build output (was tracked by mistake — churns on every build)
+apps/web/.next/

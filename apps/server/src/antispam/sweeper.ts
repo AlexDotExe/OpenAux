@@ -16,6 +16,8 @@ export interface ExpiredSessionCandidate {
   userId: string;
   venueId: string;
   lastActiveAt: Date;
+  /** Start of the session — with lastActiveAt this gives the time spent in venue. */
+  joinedAt: Date;
 }
 
 export interface SessionRepository {
@@ -35,6 +37,12 @@ export interface AntispamSweeperDeps {
   /** Inactivity threshold. Default SESSION_EXPIRY_MS (1h). */
   sessionExpiryMs?: number;
   onError?: (error: unknown) => void;
+  /**
+   * Called for each expired session with the time actually spent in the venue.
+   * Reputation v2 (SPEC.md §5 V2) plugs in here. Fire-and-forget: reputation is
+   * an anti-spam input, never a precondition, so it must not fail the sweep.
+   */
+  onSessionEnded?: (input: { userId: string; venueId: string; seconds: number }) => void;
 }
 
 export interface AntispamSweeper {
@@ -75,6 +83,14 @@ export async function runExpirySweepOnce(deps: AntispamSweeperDeps): Promise<num
           lastActiveAt: candidate.lastActiveAt.toISOString(),
         },
         eventTimestamp: now,
+      });
+      deps.onSessionEnded?.({
+        userId: candidate.userId,
+        venueId: candidate.venueId,
+        seconds: Math.max(
+          0,
+          Math.round((candidate.lastActiveAt.getTime() - candidate.joinedAt.getTime()) / 1000),
+        ),
       });
       expiredCount += 1;
     } catch (error) {

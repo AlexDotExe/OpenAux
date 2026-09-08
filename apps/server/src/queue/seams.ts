@@ -94,6 +94,26 @@ export const noopEmitAnalyticsEvent: EmitAnalyticsEvent = () => {
 };
 
 // ---------------------------------------------------------------------------
+// Reputation engagement — WS6 (antispam). Default: noop.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reputation v2 (SPEC.md §5 V2) credits a patron when a song they requested
+ * actually plays. Like analytics, this is fire-and-forget: reputation is an
+ * anti-spam input, never a precondition for queue movement, so a failure here
+ * must not block or fail an advance.
+ */
+export type RecordSongPlayed = (input: {
+  userId: string;
+  venueId: string;
+  queueItemId: string;
+}) => void;
+
+export const noopRecordSongPlayed: RecordSongPlayed = () => {
+  /* no-op default */
+};
+
+// ---------------------------------------------------------------------------
 // Music provider access — WS2 (only providers/ may touch concrete SDKs)
 // ---------------------------------------------------------------------------
 

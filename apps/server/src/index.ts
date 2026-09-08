@@ -40,6 +40,8 @@ import {
   createPgFrictionProvider,
   createPgSessionRepository,
   startAntispamSweeper,
+  createPgReputationRepository,
+  recordEngagement,
 } from './antispam/index.js';
 import {
   InMemoryVenueTokenStore,
@@ -178,12 +180,34 @@ async function main(): Promise<void> {
   // Seams shared by the queue routes' internal service and the standalone service
   // used for programmatic advance (skip/override). Both are stateless over the
   // same repository, so two instances are equivalent.
+  // --- WS6 reputation v2 (SPEC.md §5 V2): credit engagement. Both call sites are
+  // fire-and-forget — reputation is an anti-spam input, never a precondition, so a
+  // failure must not block a queue advance or the expiry sweep.
+  const reputationRepository = createPgReputationRepository(pool);
+  const reputationDeps = {
+    reputationRepository,
+    emitEvent: emitAnalyticsEvent,
+  };
+
   const queueOptions = {
     repository: queueRepository,
     frictionProvider,
     broadcaster: queueBroadcaster,
     emitAnalyticsEvent: queueEmit,
     providerResolver: queueProviderResolver,
+    recordSongPlayed: ({
+      userId,
+      venueId,
+      queueItemId,
+    }: {
+      userId: string;
+      venueId: string;
+      queueItemId: string;
+    }) => {
+      void recordEngagement({ userId, venueId, songsPlayed: 1, queueItemId }, reputationDeps).catch(
+        (err) => app.log.error(err),
+      );
+    },
   };
 
   // --- WS1 sessions ---
@@ -281,6 +305,12 @@ async function main(): Promise<void> {
       }
     },
     onError: (err) => app.log.error(err),
+    onSessionEnded: ({ userId, venueId, seconds }) => {
+      void recordEngagement(
+        { userId, venueId, timeInVenueSeconds: seconds },
+        reputationDeps,
+      ).catch((err) => app.log.error(err));
+    },
   });
 
   const port = Number(process.env.PORT ?? 4000);
