@@ -11,7 +11,10 @@
  *   - `startAntispamSweeper` (sweeper.ts) — call once at server startup with a
  *     `SessionRepository` (see `createPgSessionRepository` below).
  *   - `computeReputationScore` / `updateReputation` (reputation.ts) — reputation
- *     v1 formula + the recompute/persist/emit service (SPEC.md §5 V1).
+ *     formula + the recompute/persist/emit service (SPEC.md §5 V1, extended by V2).
+ *   - `recordEngagement` (reputation.ts) — reputation v2 (SPEC.md §5 V2): call it
+ *     with `songsPlayed: 1` from WS3 when a queue item transitions to `played`,
+ *     and with `timeInVenueSeconds` from WS1 when a session ends/expires.
  *   - `isWithinRadius` / `haversineDistanceM` (location.ts) — join-time geofence
  *     check for WS1's sessions/join (pure; wiring TODO in the report).
  *   - `computeGroupArrivalSpamSignal` / `detectArrivalClusters` (group-abuse.ts)
