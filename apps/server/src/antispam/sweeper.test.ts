@@ -23,12 +23,14 @@ describe('runExpirySweepOnce', () => {
         userId: 'u-1',
         venueId: 'v-1',
         lastActiveAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+        joinedAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
       },
       {
         sessionId: 's-2',
         userId: 'u-2',
         venueId: 'v-1',
         lastActiveAt: new Date(now.getTime() - 90 * 60 * 1000),
+        joinedAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
       },
     ];
     const sessionRepository = makeRepo(candidates);
@@ -68,6 +70,7 @@ describe('runExpirySweepOnce', () => {
         userId: 'u-1',
         venueId: 'v-1',
         lastActiveAt: new Date(now.getTime() - 1000),
+        joinedAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
       },
     ];
     const sessionRepository = makeRepo(candidates);
@@ -92,12 +95,14 @@ describe('runExpirySweepOnce', () => {
         userId: 'u-1',
         venueId: 'v-1',
         lastActiveAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+        joinedAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
       },
       {
         sessionId: 's-2',
         userId: 'u-2',
         venueId: 'v-1',
         lastActiveAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+        joinedAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
       },
     ];
     const sessionRepository: SessionRepository = {

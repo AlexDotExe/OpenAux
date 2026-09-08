@@ -30,6 +30,7 @@ import {
   type EmitAnalyticsEvent,
   type FrictionProvider,
   type MusicProviderResolver,
+  type RecordSongPlayed,
 } from './seams.js';
 
 export interface RegisterQueueRoutesOptions {
@@ -38,6 +39,8 @@ export interface RegisterQueueRoutesOptions {
   broadcaster?: Broadcaster;
   emitAnalyticsEvent?: EmitAnalyticsEvent;
   providerResolver?: MusicProviderResolver;
+  /** Reputation v2 credit when a requested song plays (WS6 seam; default noop). */
+  recordSongPlayed?: RecordSongPlayed;
   clock?: Clock;
   /**
    * Pre-built service to register routes with, instead of constructing a new one from
@@ -70,6 +73,7 @@ export function registerQueueRoutes(
       broadcaster: options.broadcaster,
       emitAnalyticsEvent: options.emitAnalyticsEvent,
       providerResolver: options.providerResolver,
+      recordSongPlayed: options.recordSongPlayed,
       clock: options.clock,
     });
   registerQueueRouteHandlers(

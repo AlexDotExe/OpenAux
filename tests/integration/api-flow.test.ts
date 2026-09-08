@@ -18,7 +18,8 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { QueueItem, QueueSnapshot } from '@openaux/shared';
-import { startServer, CONSOLE_TOKEN, type RunningServer } from './helpers/server.js';
+import pg from 'pg';
+import { startServer, CONSOLE_TOKEN, TEST_DATABASE_URL, type RunningServer } from './helpers/server.js';
 import { api, asAdmin, asSession, asUser, idempotent, FAKE_TRACKS } from './helpers/api.js';
 
 let server: RunningServer;
@@ -237,6 +238,39 @@ describe('playback advance', () => {
 
     const snapshot = await api.get<QueueSnapshot>(ctx, `/api/venues/${state.venueId}/queue`);
     expect(snapshot.nowPlaying?.queueItemId).toBe(res.nowPlaying?.queueItemId);
+  });
+
+  it('a second advance completes the playing song (played transition)', async () => {
+    const before = await api.get<QueueSnapshot>(ctx, `/api/venues/${state.venueId}/queue`);
+    const wasPlaying = before.nowPlaying?.queueItemId;
+    expect(wasPlaying).toBeTruthy();
+
+    const res = await api.post<{ nowPlaying: QueueItem | null }>(
+      ctx,
+      `/api/venues/${state.venueId}/playback/state`,
+      { isPlaying: false, positionMs: 0, providerTrackId: null, trackEnded: true },
+      asAdmin(CONSOLE_TOKEN),
+    );
+    // The previous song reached a terminal state and a different item took over.
+    expect(res.nowPlaying?.queueItemId).not.toBe(wasPlaying);
+  });
+
+  it('credits Reputation v2 to the requester when their song plays', async () => {
+    // Regression: recordSongPlayed was silently dropped by registerQueueRoutes,
+    // which only forwards the seams it explicitly enumerates. Nothing failed —
+    // the counter just never moved — so assert the persisted effect directly.
+    const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL });
+    try {
+      const { rows } = await pool.query<{ songs_played: number; reputation_score: string }>(
+        'select songs_played, reputation_score from users where songs_played > 0',
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows[0]!.songs_played).toBeGreaterThan(0);
+      // DEFAULT_REPUTATION_WEIGHTS.songPlayed is +3 per played song.
+      expect(Number(rows[0]!.reputation_score)).toBeGreaterThan(0);
+    } finally {
+      await pool.end();
+    }
   });
 
   it('rejects a playback report without the console token', async () => {

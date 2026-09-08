@@ -38,10 +38,12 @@ import {
   zeroFrictionProvider,
   noopBroadcaster,
   noopEmitAnalyticsEvent,
+  noopRecordSongPlayed,
   unavailableProviderResolver,
   type Broadcaster,
   type Clock,
   type EmitAnalyticsEvent,
+  type RecordSongPlayed,
   type FrictionInputs,
   type FrictionProvider,
   type MusicProviderResolver,
@@ -53,6 +55,8 @@ export interface QueueServiceDeps {
   broadcaster: Broadcaster;
   emitAnalyticsEvent: EmitAnalyticsEvent;
   providerResolver: MusicProviderResolver;
+  /** Reputation v2 credit when a requested song actually plays (fire-and-forget). */
+  recordSongPlayed: RecordSongPlayed;
   clock: Clock;
 }
 
@@ -68,6 +72,7 @@ export function resolveDeps(options: QueueServiceOptions): QueueServiceDeps {
     broadcaster: options.broadcaster ?? noopBroadcaster,
     emitAnalyticsEvent: options.emitAnalyticsEvent ?? noopEmitAnalyticsEvent,
     providerResolver: options.providerResolver ?? unavailableProviderResolver,
+    recordSongPlayed: options.recordSongPlayed ?? noopRecordSongPlayed,
     clock: options.clock ?? systemClock,
   };
 }
@@ -509,6 +514,14 @@ export class QueueService {
       queueItemId: current.queueItemId,
       metadata: { songId: current.songId, artist: current.artist },
     });
+    if (reason !== 'skipped') {
+      // Reputation v2: the room let this pick run to completion.
+      this.deps.recordSongPlayed({
+        userId: current.requestingUserId,
+        venueId,
+        queueItemId: current.queueItemId,
+      });
+    }
     return current;
   }
 

@@ -148,8 +148,9 @@ export function createPgSessionRepository(pool: QueryablePool): SessionRepositor
         user_id: string;
         venue_id: string;
         last_active_at: Date;
+        joined_at: Date;
       }>(
-        `select session_id, user_id, venue_id, last_active_at
+        `select session_id, user_id, venue_id, last_active_at, joined_at
          from sessions
          where is_active = true and last_active_at <= $1`,
         [cutoff],
@@ -159,6 +160,7 @@ export function createPgSessionRepository(pool: QueryablePool): SessionRepositor
         userId: row.user_id,
         venueId: row.venue_id,
         lastActiveAt: new Date(row.last_active_at),
+        joinedAt: new Date(row.joined_at),
       }));
     },
 
