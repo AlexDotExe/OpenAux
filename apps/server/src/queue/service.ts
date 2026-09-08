@@ -391,7 +391,7 @@ export class QueueService {
       const track = await provider.getTrack(selection.providerTrackId);
       if (track) {
         await provider.queueNext(target, track);
-        await provider.play(target);
+        await provider.play(target, track);
       }
       this.deps.broadcaster.broadcastToVenue(params.venueId, {
         type: 'now_playing_changed',
@@ -526,7 +526,7 @@ export class QueueService {
     const track = await provider.getTrack(item.songId);
     if (track) {
       await provider.queueNext(target, track);
-      await provider.play(target);
+      await provider.play(target, track);
     }
     const djAttribution = await repository.getDisplayName(item.requestingUserId);
     this.deps.broadcaster.broadcastToVenue(venueId, {

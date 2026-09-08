@@ -97,8 +97,10 @@ export class AppleMusicProvider implements MusicProvider {
     await this.playbackBridge.send(target, { type: 'queueNext', track });
   }
 
-  async play(target: PlaybackTarget): Promise<void> {
-    await this.playbackBridge.send(target, { type: 'play' });
+  async play(target: PlaybackTarget, track?: Track): Promise<void> {
+    // MusicKit plays the supplied track directly when the queue names one;
+    // otherwise this is a plain resume of whatever the console already has.
+    await this.playbackBridge.send(target, track ? { type: 'play', track } : { type: 'play' });
   }
 
   async pause(target: PlaybackTarget): Promise<void> {

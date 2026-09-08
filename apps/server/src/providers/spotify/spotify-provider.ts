@@ -131,11 +131,23 @@ export class SpotifyProvider implements MusicProvider {
     });
   }
 
-  async play(target: PlaybackTarget): Promise<void> {
+  async play(target: PlaybackTarget, track?: Track): Promise<void> {
     const params = new URLSearchParams({ device_id: target.providerDeviceId });
-    await this.userRequest(target.venueId, `${API_BASE}/me/player/play?${params.toString()}`, {
-      method: 'PUT',
-    });
+    // With a track, send `uris` so the device plays exactly what the queue picked.
+    // A bare resume (no body) is rejected with 403 "Restriction violated" when the
+    // device is already playing, and would otherwise continue the current track.
+    const init: RequestInit & { allowEmpty?: boolean } = track
+      ? {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uris: [`spotify:track:${track.providerTrackId}`] }),
+        }
+      : { method: 'PUT' };
+    await this.userRequest(
+      target.venueId,
+      `${API_BASE}/me/player/play?${params.toString()}`,
+      init,
+    );
   }
 
   async pause(target: PlaybackTarget): Promise<void> {

@@ -70,6 +70,21 @@ Realtime channel: `WS /ws/venues/:venueId` — events in `realtime-events.ts`.
 
 ## Changelog
 
+- **2026-09-07** — `MusicProvider.play` gains an optional track (provider contract):
+  - `play(target: PlaybackTarget, track?: Track)` — when `track` is supplied the
+    device must play THAT track; omitting it keeps the old resume semantics.
+    Backward compatible (existing 1-arg callers still typecheck).
+  - Why: the queue engine previously called `queueNext(track)` then a bare
+    `play(target)`. On Spotify a bodyless resume is rejected with
+    403 `Player command failed: Restriction violated` when the device is already
+    playing, and even on success it resumes the *current* track instead of the
+    one the queue selected — so venue playback never followed the queue.
+    Found by live E2E against a real Spotify device.
+  - Implementations updated: Spotify sends `uris: [spotify:track:<id>]`, Apple
+    forwards the track over the playback bridge, the fake provider plays it
+    deterministically. Queue call sites (`advance` fallback and
+    `startPlayingQueueItem`) now pass the resolved track.
+
 - **2026-09-04** — Reputation v2 counters (schema ↔ domain together, SPEC.md §5 V2):
   - `users.songs_played integer not null default 0` and
     `users.time_in_venue_seconds integer not null default 0` added.

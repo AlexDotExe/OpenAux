@@ -283,9 +283,16 @@ export class FakeMusicProvider implements MusicProvider {
     state.queuedTracks.push({ ...track, provider: this.id, genres: [...track.genres] });
   }
 
-  async play(target: PlaybackTarget): Promise<void> {
+  async play(target: PlaybackTarget, track?: Track): Promise<void> {
     const state = this.getPlaybackState(target);
-    if (!state.track) {
+    if (track) {
+      // Deterministic: play exactly what the queue selected.
+      state.track = { ...track, provider: this.id, genres: [...track.genres] };
+      state.queuedTracks = state.queuedTracks.filter(
+        (t) => t.providerTrackId !== track.providerTrackId,
+      );
+      state.positionMs = 0;
+    } else if (!state.track) {
       state.track = state.queuedTracks.shift() ?? null;
       state.positionMs = 0;
     }
