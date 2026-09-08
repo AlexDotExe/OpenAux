@@ -199,6 +199,19 @@ describe('money: credits, boosts, ledger', () => {
     expect(instant.creditBalance).toBe(1);
   });
 
+  it('accepts the uniform X-Session-Id transport, deriving the venue from the session', async () => {
+    // Issue #85: payment endpoints historically required X-User-Id (+ X-Venue-Id).
+    // They now also accept the same X-Session-Id every other patron endpoint uses,
+    // with venue context resolved from the session row rather than the client.
+    const res = await api.post<{ creditBalance: number }>(
+      ctx,
+      '/api/credits/purchase',
+      { bundleId: 'starter_5', paymentMethodToken: 'pm_card_visa' },
+      { ...asSession(state.patrons[2]!.sessionId), ...idempotent() },
+    );
+    expect(res.creditBalance).toBe(5);
+  });
+
   it('rejects a boost the patron cannot afford', async () => {
     await expect(
       api.post(

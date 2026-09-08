@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import type { QueueItem } from '@openaux/shared';
 import type { CreditsLedgerEntry, PaymentType } from './domain-rows.js';
 import { REFUNDABLE_BOOST_TYPES, type BoostCountColumn } from './boost-catalog.js';
+import type { SessionActor, SessionActorRepo } from './session-repo.js';
 import {
   UniqueViolationError,
   type BoostCodeRow,
@@ -281,5 +282,24 @@ export class InMemoryPaymentsRepo implements PaymentsRepo, PaymentsTx {
     c.redeemedBy = userId;
     c.redeemedAt = redeemedAt;
     return true;
+  }
+}
+
+/**
+ * In-memory SessionActorRepo for unit tests — stands in for WS1's `sessions`
+ * table. Only ACTIVE sessions are seeded; anything unseeded resolves to null,
+ * exactly like an unknown or expired session id in Postgres.
+ */
+export class InMemorySessionActorRepo implements SessionActorRepo {
+  readonly sessions = new Map<string, SessionActor>();
+
+  seedSession(sessionId: string, actor: SessionActor): SessionActor {
+    this.sessions.set(sessionId, actor);
+    return actor;
+  }
+
+  async findActorBySessionId(sessionId: string): Promise<SessionActor | null> {
+    const s = this.sessions.get(sessionId);
+    return s ? { ...s } : null;
   }
 }
