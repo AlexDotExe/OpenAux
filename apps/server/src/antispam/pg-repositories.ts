@@ -60,44 +60,42 @@ export function createPgVoteActivityRepository(pool: QueryablePool): VoteActivit
   };
 }
 
-const REPUTATION_COLUMNS: readonly (keyof ReputationCounters)[] = [
-  'upvotesReceived',
-  'downvotesReceived',
-  'spamAttempts',
-  'songsSkipped',
-];
-
+/**
+ * Reputation counter columns. `songs_played` / `time_in_venue_seconds` are the
+ * Reputation v2 engagement counters (SPEC.md §5 V2).
+ */
 const REPUTATION_COLUMN_SQL: Readonly<Record<keyof ReputationCounters, string>> = {
   upvotesReceived: 'upvotes_received',
   downvotesReceived: 'downvotes_received',
   spamAttempts: 'spam_attempts',
   songsSkipped: 'songs_skipped',
+  songsPlayed: 'songs_played',
+  timeInVenueSeconds: 'time_in_venue_seconds',
 };
 
-function rowToCounters(row: {
-  upvotes_received: number | string;
-  downvotes_received: number | string;
-  spam_attempts: number | string;
-  songs_skipped: number | string;
-}): ReputationCounters {
+const REPUTATION_COLUMNS = Object.keys(REPUTATION_COLUMN_SQL) as (keyof ReputationCounters)[];
+
+/** The `select` / `returning` list, kept in sync with REPUTATION_COLUMN_SQL. */
+const REPUTATION_SELECT_SQL = REPUTATION_COLUMNS.map((key) => REPUTATION_COLUMN_SQL[key]).join(', ');
+
+type ReputationRow = Record<string, number | string>;
+
+function rowToCounters(row: ReputationRow): ReputationCounters {
   return {
     upvotesReceived: Number(row.upvotes_received),
     downvotesReceived: Number(row.downvotes_received),
     spamAttempts: Number(row.spam_attempts),
     songsSkipped: Number(row.songs_skipped),
+    songsPlayed: Number(row.songs_played),
+    timeInVenueSeconds: Number(row.time_in_venue_seconds),
   };
 }
 
 export function createPgReputationRepository(pool: QueryablePool): ReputationRepository {
   return {
     async getCounters(userId: string): Promise<ReputationCounters | null> {
-      const result = await pool.query<{
-        upvotes_received: number | string;
-        downvotes_received: number | string;
-        spam_attempts: number | string;
-        songs_skipped: number | string;
-      }>(
-        `select upvotes_received, downvotes_received, spam_attempts, songs_skipped
+      const result = await pool.query<ReputationRow>(
+        `select ${REPUTATION_SELECT_SQL}
          from users
          where user_id = $1`,
         [userId],
@@ -122,15 +120,10 @@ export function createPgReputationRepository(pool: QueryablePool): ReputationRep
       }
       const setClause =
         assignments.length > 0 ? assignments.join(', ') : 'upvotes_received = upvotes_received';
-      const result = await pool.query<{
-        upvotes_received: number | string;
-        downvotes_received: number | string;
-        spam_attempts: number | string;
-        songs_skipped: number | string;
-      }>(
+      const result = await pool.query<ReputationRow>(
         `update users set ${setClause}
          where user_id = $1
-         returning upvotes_received, downvotes_received, spam_attempts, songs_skipped`,
+         returning ${REPUTATION_SELECT_SQL}`,
         values,
       );
       const row = result.rows[0];

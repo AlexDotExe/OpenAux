@@ -32,7 +32,8 @@ import { PaymentsService } from './service.js';
 import { PgPaymentsRepo } from './pg-repo.js';
 import { PgAnalyticsSink, type AnalyticsSink } from './analytics.js';
 import { FakeGateway, StripeGateway, type PaymentGateway } from './gateway.js';
-import { headerActorResolver, idempotencyKeyFrom, type ActorResolver } from './auth.js';
+import { createActorResolver, idempotencyKeyFrom, type ActorResolver } from './auth.js';
+import { PgSessionActorRepo, type SessionActorRepo } from './session-repo.js';
 import { isPaymentsError, PaymentsError } from './errors.js';
 import type { PaymentsRepo } from './repo.js';
 import type { BoostType } from './boost-catalog.js';
@@ -43,6 +44,8 @@ export interface RegisterPaymentRoutesOptions {
   gateway?: PaymentGateway;
   analytics?: AnalyticsSink;
   actorResolver?: ActorResolver;
+  /** Session lookup backing the default `X-Session-Id` resolver (Postgres by default). */
+  sessionRepo?: SessionActorRepo;
 }
 
 /** Choose a gateway: Stripe when a key is configured, else a Fake for local dev. */
@@ -78,7 +81,10 @@ export async function registerPaymentRoutes(
   opts: RegisterPaymentRoutesOptions = {},
 ): Promise<void> {
   const service = createPaymentsService(app, opts);
-  const resolveActor: ActorResolver = opts.actorResolver ?? headerActorResolver;
+  // Uniform patron transport: `X-Session-Id` first (venue context derived from
+  // the session), legacy `x-user-id` / `x-venue-id` as the fallback.
+  const sessionRepo: SessionActorRepo = opts.sessionRepo ?? new PgSessionActorRepo(pool);
+  const resolveActor: ActorResolver = opts.actorResolver ?? createActorResolver(sessionRepo);
 
   // POST /api/credits/purchase
   app.post('/api/credits/purchase', async (req, reply) => {
@@ -192,3 +198,12 @@ export type { PaymentGateway } from './gateway.js';
 export type { PaymentsRepo } from './repo.js';
 export { StubPayoutGateway } from './payouts.js';
 export type { PayoutGateway } from './payouts.js';
+export { PgSessionActorRepo } from './session-repo.js';
+export type { SessionActor, SessionActorRepo } from './session-repo.js';
+export {
+  createActorResolver,
+  headerActorResolver,
+  sessionActorResolver,
+  type Actor,
+  type ActorResolver,
+} from './auth.js';

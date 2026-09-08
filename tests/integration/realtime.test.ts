@@ -37,8 +37,10 @@ import { FakeBoostCodeRepository } from '../../apps/server/src/venue/test-suppor
 import { FakeVenueRepository } from '../../apps/server/src/venue/test-support/fake-repository.js';
 
 const ADMIN_TOKEN = 'console-secret';
-const VENUE_ID = 'venue-1';
-const OTHER_VENUE_ID = 'venue-2';
+// Real venue ids are uuid columns (db/schema.sql); the venue routes reject
+// malformed ids with 404 before they reach SQL, so fixtures must be uuids too.
+const VENUE_ID = '11111111-1111-4111-8111-111111111111';
+const OTHER_VENUE_ID = '22222222-2222-4222-8222-222222222222';
 const PATRON_SESSION_ID = 'session-patron';
 const SKIP_VOTER_SESSION_ID = 'session-skip-voter';
 

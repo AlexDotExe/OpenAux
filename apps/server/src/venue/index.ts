@@ -32,6 +32,7 @@ import { registerPowerHourRoute } from './power-hour.js';
 import { PostgresVenueRepository } from './repository.js';
 import { registerSettingsRoute } from './settings.js';
 import { registerSkipRoute } from './skip.js';
+import { mapUuidSyntaxErrorToNotFound, venueIdParamGuard } from './venue-id.js';
 import { registerVenueReadRoutes } from './venue-read.js';
 import type {
   AnalyticsSink,
@@ -111,15 +112,25 @@ export const registerVenueRoutes: FastifyPluginAsync<VenueRoutesOptions> = async
     adminGuard,
   };
 
-  registerVenueReadRoutes(app, ctx);
-  registerSettingsRoute(app, ctx);
-  registerOverridesRoute(app, ctx);
-  registerApprovalsRoute(app, ctx);
-  registerSkipRoute(app, ctx);
-  registerFallbackPlaylistRoute(app, ctx);
-  registerAnthemRoute(app, ctx);
-  registerPowerHourRoute(app, ctx);
-  registerBoostCodesRoutes(app, ctx);
+  // Every route below takes a `:venueId` that ends up in a `uuid` column, so
+  // they all register inside one encapsulated scope carrying the shape guard
+  // and the 22P02 -> 404 safety net (see venue-id.ts). Encapsulation matters:
+  // apps/server/src/index.ts calls this plugin as a plain function, so hooks
+  // added to `app` directly would leak onto every other workstream's routes.
+  app.register(async (scope) => {
+    scope.addHook('onRequest', venueIdParamGuard);
+    scope.setErrorHandler(mapUuidSyntaxErrorToNotFound);
+
+    registerVenueReadRoutes(scope, ctx);
+    registerSettingsRoute(scope, ctx);
+    registerOverridesRoute(scope, ctx);
+    registerApprovalsRoute(scope, ctx);
+    registerSkipRoute(scope, ctx);
+    registerFallbackPlaylistRoute(scope, ctx);
+    registerAnthemRoute(scope, ctx);
+    registerPowerHourRoute(scope, ctx);
+    registerBoostCodesRoutes(scope, ctx);
+  });
 };
 
 /**
