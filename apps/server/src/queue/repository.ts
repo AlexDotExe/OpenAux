@@ -480,9 +480,12 @@ export class PostgresQueueRepository implements QueueRepository {
     // Stamp played_at only on the actual-play terminal state (not skipped), so the
     // antispam recently-played lookup and DJ-brain vibe window use real play order.
     await this.pool.query(
+      // $2 is cast explicitly on both uses: without the casts Postgres deduces the
+      // enum type from `status = $2` and text from the CASE comparison, and fails
+      // with "inconsistent types deduced for parameter $2".
       `update queue_items
-         set status = $2,
-             played_at = case when $2 = 'played' then now() else played_at end
+         set status = $2::queue_item_status,
+             played_at = case when $2::text = 'played' then now() else played_at end
        where queue_item_id = $1`,
       [queueItemId, status],
     );

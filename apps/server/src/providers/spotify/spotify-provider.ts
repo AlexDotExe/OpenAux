@@ -83,13 +83,20 @@ export class SpotifyProvider implements MusicProvider {
       new Set(tracks.map((t) => t.artists[0]?.id).filter((id): id is string => Boolean(id))),
     );
     const genresByArtistId = new Map<string, string[]>();
+    // Genre is optional enrichment (blocked-genre eligibility, Power Hour matching).
+    // Spotify restricts /v1/artists for some app tiers (403), so a failure here must
+    // degrade to "no genre" rather than fail the whole track lookup / song request.
     for (let i = 0; i < artistIds.length; i += ARTIST_BATCH_SIZE) {
       const chunk = artistIds.slice(i, i + ARTIST_BATCH_SIZE);
       const params = new URLSearchParams({ ids: chunk.join(',') });
-      const res = await this.appRequest(`${API_BASE}/artists?${params.toString()}`);
-      const body = (await res.json()) as { artists: SpotifyArtistJson[] };
-      for (const artist of body.artists) {
-        if (artist) genresByArtistId.set(artist.id, artist.genres ?? []);
+      try {
+        const res = await this.appRequest(`${API_BASE}/artists?${params.toString()}`);
+        const body = (await res.json()) as { artists: SpotifyArtistJson[] };
+        for (const artist of body.artists) {
+          if (artist) genresByArtistId.set(artist.id, artist.genres ?? []);
+        }
+      } catch {
+        // Leave these artists ungenred; callers treat a missing entry as [].
       }
     }
     return genresByArtistId;
@@ -206,7 +213,13 @@ export class SpotifyProvider implements MusicProvider {
       });
     }
     if (!res.ok && !(init.allowEmpty && res.status === 204)) {
-      throw new Error(`Spotify Connect request failed: ${res.status} ${url}`);
+      // Include Spotify's own reason — 403s here are usually actionable
+      // ("Premium required", "Restriction violated"), and swallowing the body
+      // makes venue playback failures undiagnosable in production.
+      const detail = await res.text().catch(() => '');
+      throw new Error(
+        `Spotify Connect request failed: ${res.status} ${url}${detail ? ` — ${detail}` : ''}`,
+      );
     }
     return res;
   }

@@ -22,6 +22,7 @@ function sendError(reply: FastifyReply, err: unknown): void {
     reply.status(statusForCode(err.code)).send(apiError(err.code, err.message));
     return;
   }
+  reply.log.error({ err }, 'queue route unexpected error');
   reply.status(500).send(apiError('internal', 'Unexpected error.'));
 }
 
