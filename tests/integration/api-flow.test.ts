@@ -75,6 +75,12 @@ describe('venue setup', () => {
   it('404s an unknown venue instead of leaking a 500', async () => {
     await expect(api.get(ctx, `/api/venues/${randomUUID()}`)).rejects.toMatchObject({ status: 404 });
   });
+
+  it('404s a malformed (non-uuid) venue id rather than a Postgres 22P02 500', async () => {
+    // Regression: a non-uuid reached SQL and surfaced as HTTP 500
+    // ("invalid input syntax for type uuid").
+    await expect(api.get(ctx, '/api/venues/nonexistent')).rejects.toMatchObject({ status: 404 });
+  });
 });
 
 describe('patrons join and request', () => {

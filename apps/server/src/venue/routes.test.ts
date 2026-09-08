@@ -8,7 +8,10 @@ import type { AdminTokenProvider } from './auth.js';
 import type { AnalyticsSink, Broadcaster, QueueControl } from './types.js';
 
 const ADMIN_TOKEN = 'test-admin-token';
-const VENUE_ID = 'venue-1';
+// venues.venue_id is a uuid column — ids used in URLs must be uuid-shaped or
+// the venue-id guard answers 404 before the handler runs (see venue-id.ts).
+const VENUE_ID = '11111111-1111-4111-8111-111111111111';
+const UNKNOWN_VENUE_ID = '22222222-2222-4222-8222-222222222222';
 
 const FAKE_TRACK: Track = {
   provider: 'spotify',
@@ -144,6 +147,149 @@ describe('venue admin routes — auth guard', () => {
     for (const response of responses) {
       expect(response.statusCode).toBe(401);
     }
+  });
+});
+
+describe('venue routes — malformed :venueId never reaches SQL', () => {
+  it('404s not_found for a non-uuid venue id on the public read (regression: used to 500)', async () => {
+    const { app, repository } = await buildApp();
+    // Would raise SQLSTATE 22P02 against real Postgres via
+    // reconcilePowerHourOnRead -> getPowerHour if it got that far.
+    let repositoryTouched = false;
+    repository.getPowerHour = async () => {
+      repositoryTouched = true;
+      return null;
+    };
+
+    const response = await app.inject({ method: 'GET', url: '/api/venues/nonexistent' });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: { code: 'not_found', message: 'venue not found' },
+    });
+    expect(repositoryTouched).toBe(false);
+  });
+
+  it('404s not_found for a well-formed but unknown venue uuid (unchanged behavior)', async () => {
+    const { app } = await buildApp();
+    const response = await app.inject({ method: 'GET', url: `/api/venues/${UNKNOWN_VENUE_ID}` });
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.code).toBe('not_found');
+  });
+
+  it('still 200s for an existing venue', async () => {
+    const { app } = await buildApp();
+    const response = await app.inject({ method: 'GET', url: `/api/venues/${VENUE_ID}` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().venueId).toBe(VENUE_ID);
+  });
+
+  it('404s on every venue route that takes a :venueId', async () => {
+    const { app } = await buildApp();
+    const bad = 'nonexistent';
+
+    const responses = await Promise.all([
+      app.inject({ method: 'GET', url: `/api/venues/${bad}` }),
+      app.inject({
+        method: 'GET',
+        url: `/api/venues/${bad}/fallback-playlist`,
+        headers: authHeader(),
+      }),
+      app.inject({
+        method: 'PATCH',
+        url: `/api/venues/${bad}/settings`,
+        headers: authHeader(),
+        payload: { blockExplicit: true },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/venues/${bad}/overrides`,
+        headers: authHeader(),
+        payload: { providerTrackId: 'track-abc', when: 'now' },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/venues/${bad}/approvals/${VENUE_ID}`,
+        headers: authHeader(),
+        payload: { decision: 'approve' },
+      }),
+      app.inject({ method: 'POST', url: `/api/venues/${bad}/skip`, headers: authHeader() }),
+      app.inject({
+        method: 'PUT',
+        url: `/api/venues/${bad}/fallback-playlist`,
+        headers: authHeader(),
+        payload: { providerTrackIds: ['t1'] },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/venues/${bad}/anthem`,
+        headers: authHeader(),
+        payload: { providerTrackId: 'track-abc', promoText: 'promo', promoDurationMinutes: 5 },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/venues/${bad}/power-hour`,
+        headers: authHeader(),
+        payload: { genre: 'hip-hop', multiplier: 2, durationMinutes: 15 },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/venues/${bad}/boost-codes`,
+        headers: authHeader(),
+        payload: { tier: 'beer' },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/api/venues/${bad}/boost-codes`,
+        headers: authHeader(),
+      }),
+    ]);
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(404);
+      expect(response.json().error.code).toBe('not_found');
+    }
+  });
+
+  it('404s for a malformed :queueItemId on the approvals route', async () => {
+    const { app, repository } = await buildApp();
+    let repositoryTouched = false;
+    repository.getQueueItem = async () => {
+      repositoryTouched = true;
+      return null;
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/venues/${VENUE_ID}/approvals/not-a-uuid`,
+      headers: authHeader(),
+      payload: { decision: 'approve' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.code).toBe('not_found');
+    expect(repositoryTouched).toBe(false);
+  });
+
+  it('maps a SQLSTATE 22P02 escaping a handler to 404 instead of 500', async () => {
+    const { app, repository } = await buildApp();
+    repository.getVenueSummary = async () => {
+      throw Object.assign(new Error('invalid input syntax for type uuid'), { code: '22P02' });
+    };
+
+    const response = await app.inject({ method: 'GET', url: `/api/venues/${VENUE_ID}` });
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error.code).toBe('not_found');
+  });
+
+  it('leaves unrelated handler failures as 500', async () => {
+    const { app, repository } = await buildApp();
+    repository.getVenueSummary = async () => {
+      throw new Error('boom');
+    };
+
+    const response = await app.inject({ method: 'GET', url: `/api/venues/${VENUE_ID}` });
+    expect(response.statusCode).toBe(500);
   });
 });
 
@@ -390,7 +536,7 @@ describe('POST /api/venues/:venueId/power-hour', () => {
     const { app } = await buildApp();
     const response = await app.inject({
       method: 'POST',
-      url: `/api/venues/venue-unknown/power-hour`,
+      url: `/api/venues/${UNKNOWN_VENUE_ID}/power-hour`,
       headers: authHeader(),
       payload: { genre: 'hip-hop', multiplier: 2, durationMinutes: 15 },
     });

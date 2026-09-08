@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ApprovalRequest, ApprovalResponse } from '@openaux/shared';
 import { applyApprovalDecision } from './approval-logic.js';
 import { errorResponse } from './errors.js';
+import { isUuidShape } from './venue-id.js';
 import type { VenueRouteContext } from './types.js';
 
 export function registerApprovalsRoute(app: FastifyInstance, ctx: VenueRouteContext): void {
@@ -17,6 +18,12 @@ export function registerApprovalsRoute(app: FastifyInstance, ctx: VenueRouteCont
         return reply
           .code(400)
           .send(errorResponse('validation', 'decision must be "approve" or "reject"'));
+      }
+
+      // queue_items.queue_item_id is a uuid column: a malformed id can never
+      // match a row, and passing it into SQL would raise 22P02 (a 500) instead.
+      if (!isUuidShape(queueItemId)) {
+        return reply.code(404).send(errorResponse('not_found', 'queue item not found'));
       }
 
       const item = await ctx.repository.getQueueItem(queueItemId);
