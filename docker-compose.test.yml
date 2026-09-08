@@ -4,6 +4,11 @@
 #   docker compose -f docker-compose.test.yml up -d
 #   npm run test:integration
 #   docker compose -f docker-compose.test.yml down -v
+# Pinned project name: without it Compose derives the project from the directory
+# ("openaux") and the container collides with any other compose project already
+# running from this repo, leaving the test container stuck in "created".
+name: openaux-test
+
 services:
   test-db:
     image: postgres:16-alpine
