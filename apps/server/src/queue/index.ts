@@ -23,12 +23,13 @@ import { pool } from '../db.js';
 import { PostgresQueueRepository, type QueueRepository } from './repository.js';
 import { registerQueueRouteHandlers } from './routes.js';
 import { createQueueService, QueueService } from './service.js';
-import type {
-  Broadcaster,
-  Clock,
-  EmitAnalyticsEvent,
-  FrictionProvider,
-  MusicProviderResolver,
+import {
+  unavailableProviderResolver,
+  type Broadcaster,
+  type Clock,
+  type EmitAnalyticsEvent,
+  type FrictionProvider,
+  type MusicProviderResolver,
 } from './seams.js';
 
 export interface RegisterQueueRoutesOptions {
@@ -71,7 +72,12 @@ export function registerQueueRoutes(
       providerResolver: options.providerResolver,
       clock: options.clock,
     });
-  registerQueueRouteHandlers(app, service, repository);
+  registerQueueRouteHandlers(
+    app,
+    service,
+    repository,
+    options.providerResolver ?? unavailableProviderResolver,
+  );
   return service;
 }
 

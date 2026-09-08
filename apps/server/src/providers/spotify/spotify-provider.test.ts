@@ -67,7 +67,7 @@ describe('SpotifyProvider.searchTracks', () => {
     });
   });
 
-  it('caps the limit at 50', async () => {
+  it('caps the limit at the tier-safe default (restricted apps 400 above 10)', async () => {
     const fetchImpl = queuedFetch([
       jsonResponse({ access_token: 'app-tok', expires_in: 3600 }),
       jsonResponse({ tracks: { items: [] } }),
@@ -78,7 +78,28 @@ describe('SpotifyProvider.searchTracks', () => {
     await provider.searchTracks('x', { limit: 500 });
 
     const searchCall = fetchImpl.mock.calls[1] as [string, RequestInit];
-    expect(searchCall[0]).toContain('limit=50');
+    expect(searchCall[0]).toContain('limit=10');
+  });
+
+  it('honors SPOTIFY_SEARCH_MAX_LIMIT and still caps at Spotify’s documented 50', async () => {
+    const previous = process.env.SPOTIFY_SEARCH_MAX_LIMIT;
+    try {
+      process.env.SPOTIFY_SEARCH_MAX_LIMIT = '500';
+      const fetchImpl = queuedFetch([
+        jsonResponse({ access_token: 'app-tok', expires_in: 3600 }),
+        jsonResponse({ tracks: { items: [] } }),
+        jsonResponse({ artists: [] }),
+      ]);
+      const provider = makeProvider(fetchImpl);
+
+      await provider.searchTracks('x', { limit: 500 });
+
+      const searchCall = fetchImpl.mock.calls[1] as [string, RequestInit];
+      expect(searchCall[0]).toContain('limit=50');
+    } finally {
+      if (previous === undefined) delete process.env.SPOTIFY_SEARCH_MAX_LIMIT;
+      else process.env.SPOTIFY_SEARCH_MAX_LIMIT = previous;
+    }
   });
 });
 

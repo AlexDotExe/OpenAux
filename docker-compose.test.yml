@@ -1,0 +1,24 @@
+# Postgres for the DB-backed integration suite (`npm run test:integration`).
+# Deliberately on a non-default port so it never collides with a dev database.
+#
+#   docker compose -f docker-compose.test.yml up -d
+#   npm run test:integration
+#   docker compose -f docker-compose.test.yml down -v
+services:
+  test-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: openaux
+      POSTGRES_PASSWORD: openaux
+      POSTGRES_DB: openaux_test
+    ports:
+      - '5433:5432'
+    # schema.sql is the canonical schema (CLAUDE.md): applied verbatim on first
+    # boot, so the suite fails loudly if the schema and the code drift apart.
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U openaux -d openaux_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
