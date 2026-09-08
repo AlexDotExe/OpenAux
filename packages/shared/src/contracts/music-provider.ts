@@ -44,7 +44,15 @@ export interface MusicProvider {
 
   /** Tell the venue device what plays next. Called only by the queue engine. */
   queueNext(target: PlaybackTarget, track: Track): Promise<void>;
-  play(target: PlaybackTarget): Promise<void>;
+  /**
+   * Start playback on the venue device. When `track` is supplied the device must
+   * play THAT track deterministically (the backend is the playback authority —
+   * SPEC.md §2); omitting it means "resume whatever is loaded". Resume-only is
+   * not sufficient for queue advance: providers reject a bare resume when the
+   * device is already playing, and it would continue the current track rather
+   * than the one the queue selected.
+   */
+  play(target: PlaybackTarget, track?: Track): Promise<void>;
   pause(target: PlaybackTarget): Promise<void>;
   skip(target: PlaybackTarget): Promise<void>;
   getNowPlaying(target: PlaybackTarget): Promise<NowPlayingState>;

@@ -83,13 +83,20 @@ export class SpotifyProvider implements MusicProvider {
       new Set(tracks.map((t) => t.artists[0]?.id).filter((id): id is string => Boolean(id))),
     );
     const genresByArtistId = new Map<string, string[]>();
+    // Genre is optional enrichment (blocked-genre eligibility, Power Hour matching).
+    // Spotify restricts /v1/artists for some app tiers (403), so a failure here must
+    // degrade to "no genre" rather than fail the whole track lookup / song request.
     for (let i = 0; i < artistIds.length; i += ARTIST_BATCH_SIZE) {
       const chunk = artistIds.slice(i, i + ARTIST_BATCH_SIZE);
       const params = new URLSearchParams({ ids: chunk.join(',') });
-      const res = await this.appRequest(`${API_BASE}/artists?${params.toString()}`);
-      const body = (await res.json()) as { artists: SpotifyArtistJson[] };
-      for (const artist of body.artists) {
-        if (artist) genresByArtistId.set(artist.id, artist.genres ?? []);
+      try {
+        const res = await this.appRequest(`${API_BASE}/artists?${params.toString()}`);
+        const body = (await res.json()) as { artists: SpotifyArtistJson[] };
+        for (const artist of body.artists) {
+          if (artist) genresByArtistId.set(artist.id, artist.genres ?? []);
+        }
+      } catch {
+        // Leave these artists ungenred; callers treat a missing entry as [].
       }
     }
     return genresByArtistId;
@@ -124,11 +131,23 @@ export class SpotifyProvider implements MusicProvider {
     });
   }
 
-  async play(target: PlaybackTarget): Promise<void> {
+  async play(target: PlaybackTarget, track?: Track): Promise<void> {
     const params = new URLSearchParams({ device_id: target.providerDeviceId });
-    await this.userRequest(target.venueId, `${API_BASE}/me/player/play?${params.toString()}`, {
-      method: 'PUT',
-    });
+    // With a track, send `uris` so the device plays exactly what the queue picked.
+    // A bare resume (no body) is rejected with 403 "Restriction violated" when the
+    // device is already playing, and would otherwise continue the current track.
+    const init: RequestInit & { allowEmpty?: boolean } = track
+      ? {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uris: [`spotify:track:${track.providerTrackId}`] }),
+        }
+      : { method: 'PUT' };
+    await this.userRequest(
+      target.venueId,
+      `${API_BASE}/me/player/play?${params.toString()}`,
+      init,
+    );
   }
 
   async pause(target: PlaybackTarget): Promise<void> {
@@ -206,7 +225,13 @@ export class SpotifyProvider implements MusicProvider {
       });
     }
     if (!res.ok && !(init.allowEmpty && res.status === 204)) {
-      throw new Error(`Spotify Connect request failed: ${res.status} ${url}`);
+      // Include Spotify's own reason — 403s here are usually actionable
+      // ("Premium required", "Restriction violated"), and swallowing the body
+      // makes venue playback failures undiagnosable in production.
+      const detail = await res.text().catch(() => '');
+      throw new Error(
+        `Spotify Connect request failed: ${res.status} ${url}${detail ? ` — ${detail}` : ''}`,
+      );
     }
     return res;
   }

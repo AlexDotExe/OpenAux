@@ -82,7 +82,12 @@ export class InMemoryVenueTokenStore implements VenueTokenStore {
 // ---------------------------------------------------------------------------
 
 export type PlaybackCommand =
-  { type: 'queueNext'; track: Track } | { type: 'play' } | { type: 'pause' } | { type: 'skip' };
+  // `play` carries the track when the queue engine names one, so the console
+  // plays exactly what was selected rather than resuming whatever it had.
+  | { type: 'queueNext'; track: Track }
+  | { type: 'play'; track?: Track }
+  | { type: 'pause' }
+  | { type: 'skip' };
 
 export interface PlaybackBridge {
   /** Relay a playback command to the venue's MusicKit session. */
