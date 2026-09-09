@@ -77,6 +77,13 @@ export function resolveDeps(options: QueueServiceOptions): QueueServiceDeps {
   };
 }
 
+/** Outcome of a next-song lock. The reason is why nothing was locked, which
+ * callers log — a silent null made a live failure impossible to diagnose. */
+export interface LockNextUpResult {
+  locked: QueueItem | null;
+  reason: 'locked' | 'already_forced' | 'no_eligible_item';
+}
+
 interface RecomputeResult {
   venue: VenueConfig;
   nowPlaying: QueueItem | null;
@@ -351,14 +358,14 @@ export class QueueService {
    * override — the venue outranks us) or when nothing is eligible, in which case
    * advance() still handles fallback/silence as usual.
    */
-  async lockNextUp(venueId: VenueId): Promise<QueueItem | null> {
+  async lockNextUp(venueId: VenueId): Promise<LockNextUpResult> {
     const { repository } = this.deps;
     const venue = await repository.getVenueConfig(venueId);
     if (!venue) throw new QueueError('not_found', 'Venue not found.');
 
     // Never clobber an existing forced pick.
     const existingForced = await repository.getForcedNextItem(venueId);
-    if (existingForced) return null;
+    if (existingForced) return { locked: null, reason: 'already_forced' };
 
     const { ranked, activeUserCount } = await this.recompute(venueId, { persist: false });
     const [recentArtists, playedCount] = await Promise.all([
@@ -387,7 +394,7 @@ export class QueueService {
 
     // Only a real queue item can be locked. Fallback-playlist selection stays a
     // decision for advance() so the cursor advances exactly once.
-    if (selection.kind !== 'queue_item') return null;
+    if (selection.kind !== 'queue_item') return { locked: null, reason: 'no_eligible_item' };
 
     await repository.setForcedNextItem(venueId, selection.item.queueItemId);
 
@@ -402,7 +409,7 @@ export class QueueService {
       // Swallowed by design — see above.
     }
 
-    return selection.item;
+    return { locked: selection.item, reason: 'locked' };
   }
 
   /**

@@ -846,8 +846,9 @@ describe('QueueService.lockNextUp', () => {
       ]),
     );
 
-    const locked = await service.lockNextUp('v1');
+    const { locked, reason } = await service.lockNextUp('v1');
 
+    expect(reason).toBe('locked');
     expect(locked?.queueItemId).toBe('winner');
     // The commitment advance() will honor.
     expect(await repo.getForcedNextItem('v1')).toBe('winner');
@@ -864,7 +865,7 @@ describe('QueueService.lockNextUp', () => {
     await repo.setForcedNextItem('v1', 'venue-override');
     const { service } = build(repo, new Map([['trk-a', track({ providerTrackId: 'trk-a' })]]));
 
-    expect(await service.lockNextUp('v1')).toBeNull();
+    expect(await service.lockNextUp('v1')).toMatchObject({ locked: null, reason: 'already_forced' });
     expect(await repo.getForcedNextItem('v1')).toBe('venue-override');
   });
 
@@ -872,7 +873,7 @@ describe('QueueService.lockNextUp', () => {
     const repo = new FakeRepo();
     const { service } = build(repo, new Map());
 
-    expect(await service.lockNextUp('v1')).toBeNull();
+    expect(await service.lockNextUp('v1')).toMatchObject({ locked: null, reason: 'no_eligible_item' });
     expect(await repo.getForcedNextItem('v1')).toBeNull();
   });
 

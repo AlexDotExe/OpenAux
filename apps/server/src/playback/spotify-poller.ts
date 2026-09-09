@@ -31,6 +31,14 @@ export interface SpotifyPollerDeps {
   onTrackEnding?: (venueId: VenueId) => Promise<unknown>;
   /** How long before the end to lock the next song. Defaults to 10s. */
   lockLeadMs?: number;
+  /** Per-sweep observation hook (diagnostics/telemetry). */
+  onPollObserved?: (obs: {
+    venueId: VenueId;
+    trackId: string | null;
+    isPlaying: boolean;
+    remainingMs: number | null;
+    locked: boolean;
+  }) => void;
   /** Poll cadence; defaults to 5000ms. */
   intervalMs?: number;
   /** Non-fatal error hook — a failing venue must not stop the sweep or the loop. */
@@ -73,6 +81,13 @@ export function startSpotifyPlaybackPoller(deps: SpotifyPollerDeps): SpotifyPoll
     // Approaching the end: commit the next pick and prime the device. Guarded on
     // isPlaying so a paused venue sitting near the end doesn't lock repeatedly.
     const durationMs = state.track?.durationMs ?? null;
+    deps.onPollObserved?.({
+      venueId: venue.venueId,
+      trackId: currentId,
+      isPlaying: state.isPlaying,
+      remainingMs: durationMs === null ? null : durationMs - state.positionMs,
+      locked,
+    });
     if (
       !locked &&
       deps.onTrackEnding &&

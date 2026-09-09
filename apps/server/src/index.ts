@@ -326,16 +326,14 @@ async function main(): Promise<void> {
     // 10s before the end, commit the crowd's next pick and prime the device, so
     // the handover is gapless and Spotify never autoplays something unpicked.
     onTrackEnding: async (venueId) => {
-      const locked = await queueService.lockNextUp(venueId);
-      if (locked) {
-        app.log.info(
-          { venueId, queueItemId: locked.queueItemId, title: locked.title },
-          'locked next song',
-        );
-      }
+      const { locked, reason } = await queueService.lockNextUp(venueId);
+      app.log.info({ venueId, reason, title: locked?.title ?? null }, 'next-song lock');
       return locked;
     },
     lockLeadMs: Number(process.env.NEXT_SONG_LOCK_LEAD_MS ?? 10_000),
+    // Debug-level: this fires every poll per venue, so it only emits under
+    // LOG_LEVEL=debug. Invaluable for answering "why didn't the lock fire?".
+    onPollObserved: (obs) => app.log.debug(obs, 'playback poll observed'),
     // Tighter than the 5s default: between a song ending and us detecting it,
     // Spotify's own autoplay fills the gap with something the crowd didn't pick,
     // so this interval IS the window of wrong music. Tunable because it trades
