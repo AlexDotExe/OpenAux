@@ -22,16 +22,42 @@ import {
 } from '../../lib/session';
 
 export default function VenueOwnerPage() {
+  // `undefined` = we haven't read localStorage yet (it only exists after
+  // hydration, so reading it during render would desync SSR).
   const [auth, setAuth] = useState<StoredOwnerAuth | null | undefined>(undefined);
+  const [stalled, setStalled] = useState(false);
 
   useEffect(() => {
     setAuth(loadOwnerAuth());
   }, []);
 
+  // If we're still waiting after a few seconds the client bundle almost
+  // certainly failed to hydrate. Offer a way out instead of an endless spinner.
+  useEffect(() => {
+    if (auth !== undefined) return;
+    const timer = setTimeout(() => setStalled(true), 5000);
+    return () => clearTimeout(timer);
+  }, [auth]);
+
   if (auth === undefined) {
     return (
       <main className="page stack">
+        <div className="top-bar">
+          <span className="brand">
+            Open<em>Aux</em>
+          </span>
+        </div>
         <p className="helper-text">Loading…</p>
+        {stalled && (
+          <div className="card stack">
+            <p className="helper-text">
+              This is taking longer than it should — the page may have failed to load.
+            </p>
+            <button className="btn btn-primary" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          </div>
+        )}
       </main>
     );
   }
