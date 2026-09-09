@@ -4,7 +4,7 @@ import type { QueueItem, QueueSnapshot, RealtimeEvent } from '@openaux/shared';
 import { applyRealtimeEvent, initialVenueChannelState } from './realtimeReducer';
 
 function makeSnapshot(): QueueSnapshot {
-  return { nowPlaying: null, upNext: [], rest: [] };
+  return { nowPlaying: null, nowPlayingExternal: null, upNext: [], rest: [] };
 }
 
 function makeQueueItem(overrides: Partial<QueueItem> = {}): QueueItem {

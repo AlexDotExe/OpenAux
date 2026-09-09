@@ -31,7 +31,7 @@ describe('buildQueueSnapshot', () => {
 
   it('handles an empty queue', () => {
     const snap = buildQueueSnapshot({ nowPlaying: null, rankedQueued: [] });
-    expect(snap).toEqual({ nowPlaying: null, upNext: [], rest: [] });
+    expect(snap).toEqual({ nowPlaying: null, nowPlayingExternal: null, upNext: [], rest: [] });
   });
 
   it('pre-shuffles rest via the injected shuffle', () => {
