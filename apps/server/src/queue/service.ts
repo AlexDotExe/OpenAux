@@ -96,6 +96,22 @@ interface RecomputeResult {
 export class QueueService {
   private readonly deps: QueueServiceDeps;
 
+  /**
+   * Per-venue in-flight guard for `advance()` (issue #99). The Spotify poller (song-end
+   * detection, every few seconds) and `POST /playback/state {trackEnded:true}` (console /
+   * state-report path) both call `advance()`, and nothing previously stopped two overlapping
+   * calls for the same venue from each finishing the current item and promoting a fresh one
+   * — one real track end could burn multiple queue items. While a call for a venue is still
+   * running, later callers for that same venue are handed the SAME in-flight promise instead
+   * of starting a second `advance()`, so overlapping calls collapse into exactly one queue
+   * advance. Cleared once that call settles (success or failure) so the next real advance
+   * runs normally.
+   */
+  private readonly inFlightAdvance = new Map<
+    VenueId,
+    Promise<{ nowPlaying: QueueItem | null; usedFallback: boolean }>
+  >();
+
   constructor(options: QueueServiceOptions) {
     this.deps = resolveDeps(options);
   }
@@ -126,11 +142,14 @@ export class QueueService {
     if (!track) throw new QueueError('not_found', 'Track not found.');
 
     const since = new Date(now.getTime() - DUPLICATE_LOCKOUT_MINUTES * MS_PER_MINUTE);
-    const mostRecentSameSongAt = await repository.getMostRecentSameSongAt(
-      params.venueId,
-      params.providerTrackId,
-      since,
-    );
+    const [mostRecentSameSongAt, activeRequestCount] = await Promise.all([
+      repository.getMostRecentSameSongAt(params.venueId, params.providerTrackId, since),
+      // Derived, not the stored sessions.active_request_count counter (issue #97: that
+      // counter is increment-only and drifts permanently once a patron cycles through
+      // MAX_ACTIVE_REQUESTS_PER_USER requests). Counting live queue_items instead cannot
+      // drift, since a song leaving the live queue for any reason just falls out of it.
+      repository.countActiveRequests(params.venueId, session.userId),
+    ]);
 
     const eligibility = checkRequestEligibility({
       now,
@@ -139,7 +158,7 @@ export class QueueService {
       session: {
         isActive: session.isActive,
         sessionExpiredAt: session.sessionExpiredAt,
-        activeRequestCount: session.activeRequestCount,
+        activeRequestCount,
         lastRequestAt: session.lastRequestAt,
       },
       mostRecentSameSongAt,
@@ -417,8 +436,31 @@ export class QueueService {
    * constraint honored), fall back to the venue playlist when nothing is eligible, and
    * emit now_playing_changed + queue_updated. Callers: playback loop (ended) and the
    * venue skip endpoint (skipped, WS4).
+   *
+   * Concurrency (issue #99): collapses overlapping calls for the same venue into one — see
+   * `inFlightAdvance`. A caller that lands while an advance for this venue is already
+   * running gets that same in-flight promise back rather than triggering its own
+   * finish-current/pick-next cycle, so a single real track-end (which the poller and the
+   * console state-report path can both observe and report) only ever consumes one item.
    */
   async advance(params: {
+    venueId: VenueId;
+    reason: 'ended' | 'skipped';
+  }): Promise<{ nowPlaying: QueueItem | null; usedFallback: boolean }> {
+    const existing = this.inFlightAdvance.get(params.venueId);
+    if (existing) return existing;
+
+    const run = this.advanceInternal(params).finally(() => {
+      // Only clear our own run — irrelevant if a newer promise has since replaced it.
+      if (this.inFlightAdvance.get(params.venueId) === run) {
+        this.inFlightAdvance.delete(params.venueId);
+      }
+    });
+    this.inFlightAdvance.set(params.venueId, run);
+    return run;
+  }
+
+  private async advanceInternal(params: {
     venueId: VenueId;
     reason: 'ended' | 'skipped';
   }): Promise<{ nowPlaying: QueueItem | null; usedFallback: boolean }> {
@@ -605,7 +647,18 @@ export class QueueService {
 
   /** Mark a queue item playing, drive it through the provider, and broadcast
    * now_playing_changed + queue_updated. Shared by `advance()`'s queue_item selection and
-   * `playNow()`. */
+   * `playNow()`.
+   *
+   * Deliberately does NOT call `provider.queueNext()` before `play()`: `play(target, track)`
+   * already sends the exact track directly (`uris` on Spotify; an explicit track command on
+   * Apple's console bridge), so priming here would be pure redundancy, not an extra safety
+   * net. The one place priming still belongs is `lockNextUp`, which primes ahead of time
+   * (10s before the song ends) so the handover is gapless — by the time
+   * `startPlayingQueueItem` runs we're starting playback *right now*, so there's nothing
+   * left to prime. Worse, a leftover `queueNext` entry lingers in Spotify's user queue and
+   * can start playing on its own right after the track we just started, which the poller
+   * reads as a track transition and turns into a spurious `advance()` that burns a real
+   * queue item — see issue #99. */
   private async startPlayingQueueItem(venueId: VenueId, item: QueueItem): Promise<QueueItem> {
     const { repository } = this.deps;
     const provider = await this.deps.providerResolver.getProvider(venueId);
@@ -616,7 +669,6 @@ export class QueueService {
 
     const track = await provider.getTrack(item.songId);
     if (track) {
-      await provider.queueNext(target, track);
       await provider.play(target, track);
     }
     const djAttribution = await repository.getDisplayName(item.requestingUserId);

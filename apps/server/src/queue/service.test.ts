@@ -165,6 +165,14 @@ class FakeRepo implements QueueRepository {
   async recordRequestOnSession() {
     this.recordRequestCalls += 1;
   }
+  async countActiveRequests(venueId: string, userId: string) {
+    return [...this.items.values()].filter(
+      (i) =>
+        i.venueId === venueId &&
+        i.requestingUserId === userId &&
+        (i.status === 'queued' || i.status === 'playing'),
+    ).length;
+  }
   async setForcedNextItem(venueId: string, queueItemId: string) {
     this.forcedNextByVenue.set(venueId, queueItemId);
   }
@@ -292,6 +300,66 @@ describe('QueueService.createRequest', () => {
     await expect(
       service.createRequest({ venueId: 'v1', sessionId: 'nope', providerTrackId: 'trk-1' }),
     ).rejects.toBeInstanceOf(QueueError);
+  });
+
+  // Regression coverage for issue #97: sessions.active_request_count was increment-only
+  // and never decremented, so a patron who cycled through 3 requests was blocked forever.
+  // The count is now derived from live queue_items at request time instead.
+  describe('max active requests (issue #97 — derived, not the stored counter)', () => {
+    it('blocks a patron with 3 live (queued) requests', async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const item = makeQueueItem({ venueId: 'v1', requestingUserId: 'u1', status: 'queued' });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      await expect(
+        service.createRequest({ venueId: 'v1', sessionId: 's1', providerTrackId: 'trk-1' }),
+      ).rejects.toMatchObject({ code: 'max_active_requests' });
+    });
+
+    it('blocks a patron with 3 live (playing) requests too', async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const item = makeQueueItem({ venueId: 'v1', requestingUserId: 'u1', status: 'playing' });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      await expect(
+        service.createRequest({ venueId: 'v1', sessionId: 's1', providerTrackId: 'trk-1' }),
+      ).rejects.toMatchObject({ code: 'max_active_requests' });
+    });
+
+    it('allows a 4th request once the prior 3 reach a terminal status', async () => {
+      const terminalStatuses = ['played', 'skipped', 'expired'] as const;
+      for (const status of terminalStatuses) {
+        const item = makeQueueItem({ venueId: 'v1', requestingUserId: 'u1', status });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      const result = await service.createRequest({
+        venueId: 'v1',
+        sessionId: 's1',
+        providerTrackId: 'trk-1',
+      });
+      expect(result.queueItem.songId).toBe('trk-1');
+    });
+
+    it('does not count another user’s live requests toward this patron’s limit', async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const item = makeQueueItem({
+          venueId: 'v1',
+          requestingUserId: 'someone-else',
+          status: 'queued',
+        });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      const result = await service.createRequest({
+        venueId: 'v1',
+        sessionId: 's1',
+        providerTrackId: 'trk-1',
+      });
+      expect(result.queueItem.songId).toBe('trk-1');
+    });
   });
 });
 
@@ -453,7 +521,10 @@ describe('QueueService.playNow (precise override routing)', () => {
     expect(result.nowPlaying.status).toBe('playing');
     expect(repo.items.get('cur')?.status).toBe('skipped');
     expect(repo.items.get('higher')?.status).toBe('queued'); // untouched by the override
-    expect(provider.queued.map((t) => t.providerTrackId)).toEqual(['trk-target']);
+    // startPlayingQueueItem no longer primes the provider queue before play() — play()
+    // already sends the exact track. Priming here was the issue #99 double-prime bug
+    // (see QueueService.advance / startPlayingQueueItem tests below).
+    expect(provider.queued).toEqual([]);
     expect(provider.playCalls).toBe(1);
 
     const skipEvent = events.find((e) => e.eventType === 'song_skipped');
@@ -904,5 +975,128 @@ describe('QueueService.lockNextUp', () => {
     expect(res.nowPlaying?.queueItemId).toBe('winner');
     // One-shot: the marker is consumed.
     expect(await repo.getForcedNextItem('v1')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #99 — "when a song ended, it skipped like three songs before it let
+// one play." Two independent bugs, both regression-tested here:
+//   1. startPlayingQueueItem re-primed the provider queue that lockNextUp had
+//      already primed 10s earlier, so a handover queued the same track twice.
+//      The leftover entry played on its own and looked like a real track
+//      transition to the poller -> a spurious advance() -> a burned item.
+//   2. advance() had no mutual exclusion, so the poller and the console
+//      state-report route could both call it concurrently for one real
+//      track end and each consume a queue item.
+// ---------------------------------------------------------------------------
+describe('QueueService — issue #99 regressions', () => {
+  let repo: FakeRepo;
+  beforeEach(() => {
+    repo = new FakeRepo();
+  });
+
+  it('primes the provider queue exactly once per handover (lockNextUp then advance)', async () => {
+    repo.items.set(
+      'winner',
+      makeQueueItem({ queueItemId: 'winner', status: 'queued', currentScore: 9, songId: 'trk-win' }),
+    );
+    const { service, provider } = build(
+      repo,
+      new Map([['trk-win', track({ providerTrackId: 'trk-win' })]]),
+    );
+
+    await service.lockNextUp('v1'); // primes once, ~10s before the end
+    await service.advance({ venueId: 'v1', reason: 'ended' }); // must NOT prime again
+
+    expect(provider.queued.map((t) => t.providerTrackId)).toEqual(['trk-win']);
+    expect(provider.playCalls).toBe(1);
+  });
+
+  it('does not prime the provider queue at all when advance() plays without a prior lock', async () => {
+    const next = makeQueueItem({
+      queueItemId: 'nxt',
+      status: 'queued',
+      songId: 'trk-next',
+      upvotesCount: 3,
+    });
+    repo.items.set('nxt', next);
+    const { service, provider } = build(
+      repo,
+      new Map([['trk-next', track({ providerTrackId: 'trk-next' })]]),
+    );
+
+    const res = await service.advance({ venueId: 'v1', reason: 'ended' });
+
+    expect(res.nowPlaying?.queueItemId).toBe('nxt');
+    // play(target, track) alone starts the exact track — no priming call needed or made.
+    expect(provider.queued).toEqual([]);
+    expect(provider.playCalls).toBe(1);
+  });
+
+  it('collapses two overlapping advance() calls for the same venue into a single item consumed', async () => {
+    const current = makeQueueItem({ queueItemId: 'cur', status: 'playing', songId: 'trk-cur' });
+    const first = makeQueueItem({
+      queueItemId: 'first',
+      status: 'queued',
+      songId: 'trk-first',
+      upvotesCount: 5,
+    });
+    const second = makeQueueItem({
+      queueItemId: 'second',
+      status: 'queued',
+      songId: 'trk-second',
+      upvotesCount: 3,
+    });
+    repo.items.set('cur', current);
+    repo.items.set('first', first);
+    repo.items.set('second', second);
+    const catalog = new Map([
+      ['trk-first', track({ providerTrackId: 'trk-first' })],
+      ['trk-second', track({ providerTrackId: 'trk-second' })],
+    ]);
+    const { service, events } = build(repo, catalog);
+
+    // The poller and the console state-report route racing on the same real track end.
+    const [r1, r2] = await Promise.all([
+      service.advance({ venueId: 'v1', reason: 'ended' }),
+      service.advance({ venueId: 'v1', reason: 'ended' }),
+    ]);
+
+    // Both callers observe the exact same outcome — the second didn't run its own cycle.
+    expect(r1).toEqual(r2);
+    expect(r1.nowPlaying?.queueItemId).toBe('first');
+    // The second-ranked item was never touched by a phantom second advance.
+    expect(repo.items.get('second')?.status).toBe('queued');
+    expect(repo.items.get('cur')?.status).toBe('played');
+    // finishCurrent's song_played fires exactly once, not once per overlapping caller.
+    expect(events.filter((e) => e.eventType === 'song_played')).toHaveLength(1);
+  });
+
+  it('a later advance() after the in-flight one settles runs normally (guard clears)', async () => {
+    const first = makeQueueItem({
+      queueItemId: 'first',
+      status: 'queued',
+      songId: 'trk-first',
+      upvotesCount: 5,
+    });
+    const second = makeQueueItem({
+      queueItemId: 'second',
+      status: 'queued',
+      songId: 'trk-second',
+      upvotesCount: 3,
+    });
+    repo.items.set('first', first);
+    repo.items.set('second', second);
+    const catalog = new Map([
+      ['trk-first', track({ providerTrackId: 'trk-first' })],
+      ['trk-second', track({ providerTrackId: 'trk-second' })],
+    ]);
+    const { service } = build(repo, catalog);
+
+    const res1 = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(res1.nowPlaying?.queueItemId).toBe('first');
+
+    const res2 = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(res2.nowPlaying?.queueItemId).toBe('second');
   });
 });

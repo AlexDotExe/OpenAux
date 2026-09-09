@@ -149,6 +149,9 @@ function buildRepository(options: {
       throw new Error('not implemented');
     },
     async recordRequestOnSession() {},
+    async countActiveRequests() {
+      return 0;
+    },
     async setForcedNextItem() {},
     async getForcedNextItem() {
       return null;

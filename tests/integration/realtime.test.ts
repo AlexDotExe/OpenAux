@@ -310,6 +310,15 @@ class SharedRealtimeTestRepository
     });
   }
 
+  async countActiveRequests(venueId: VenueId, userId: UserId): Promise<number> {
+    return [...this.queueItems.values()].filter(
+      (item) =>
+        item.venueId === venueId &&
+        item.requestingUserId === userId &&
+        (item.status === 'queued' || item.status === 'playing'),
+    ).length;
+  }
+
   async setForcedNextItem(venueId: VenueId, queueItemId: QueueItemId): Promise<void> {
     this.forcedNextByVenue.set(venueId, queueItemId);
   }
@@ -497,7 +506,12 @@ async function buildRealtimeHarness() {
     queueNext: async (target: PlaybackTarget, track: Track) => {
       await bridge.send(target, { type: 'queueNext', track });
     },
-    play: async () => {},
+    // Mirrors the real AppleMusicProvider.play(), which relays through the bridge.
+    // A no-op here silently dropped the command and made this test depend on a
+    // redundant queueNext() that has since been removed (issue #99).
+    play: async (target: PlaybackTarget, track?: Track) => {
+      await bridge.send(target, track ? { type: 'play', track } : { type: 'play' });
+    },
     pause: async () => {},
     skip: async () => {},
     getNowPlaying: async (target: PlaybackTarget) => bridge.getNowPlaying(target),
@@ -656,8 +670,11 @@ describe('realtime integration smoke', () => {
         (event): event is PlaybackCommandEvent => event.type === 'playback_command',
         consolePlaybackStart,
       );
+      // One command per handover: play carries the track outright. Previously this
+      // was queue_next because startPlayingQueueItem primed the device redundantly
+      // before playing, which could cascade into extra advances (issue #99).
       expect(playbackCommand.payload).toMatchObject({
-        command: 'queue_next',
+        command: 'play',
         track: expect.objectContaining({ providerTrackId: OVERRIDE_TRACK.providerTrackId }),
         commandId: 'cmd-realtime-smoke',
       });

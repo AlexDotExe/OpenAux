@@ -44,11 +44,24 @@ describe('RealtimePlaybackBridge.send', () => {
     });
   });
 
+  it('relays play WITH its track — the console needs to know what to play', async () => {
+    // Regression (issue #99): toEventCommand hardcoded track:null for 'play', so an
+    // Apple console got a trackless play command. It only worked while a redundant
+    // queueNext happened to carry the track first; removing that redundancy exposed it.
+    const { bridge, sent } = bridgeWith();
+    void bridge.send(TARGET, { type: 'play', track: TRACK });
+
+    expect(sent[0]!.event).toEqual({
+      type: 'playback_command',
+      payload: { command: 'play', track: TRACK, commandId: 'cmd-1' },
+    });
+  });
+
   it.each([
     ['play', { type: 'play' as const }],
     ['pause', { type: 'pause' as const }],
     ['skip', { type: 'skip' as const }],
-  ])('relays %s with a null track', async (wire, command) => {
+  ])('relays %s with a null track when no track is supplied', async (wire, command) => {
     const { bridge, sent } = bridgeWith();
     void bridge.send(TARGET, command);
     expect(sent[0]!.event).toEqual({

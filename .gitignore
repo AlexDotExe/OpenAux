@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Next.js build output (was tracked by mistake — churns on every build)
 apps/web/.next/
+
+# Agent worktrees (transient, each is its own git checkout)
+.claude/worktrees/
