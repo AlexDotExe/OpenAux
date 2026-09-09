@@ -12,6 +12,7 @@ import type {
   CrowdSkipVoteResponse,
   QueuePositionResponse,
   QueueSnapshot,
+  ExternalNowPlaying,
   QueueItem,
   QueueItemId,
   SessionId,
@@ -39,11 +40,13 @@ import {
   noopBroadcaster,
   noopEmitAnalyticsEvent,
   noopRecordSongPlayed,
+  noopGetExternalNowPlaying,
   unavailableProviderResolver,
   type Broadcaster,
   type Clock,
   type EmitAnalyticsEvent,
   type RecordSongPlayed,
+  type GetExternalNowPlaying,
   type FrictionInputs,
   type FrictionProvider,
   type MusicProviderResolver,
@@ -57,6 +60,8 @@ export interface QueueServiceDeps {
   providerResolver: MusicProviderResolver;
   /** Reputation v2 credit when a requested song actually plays (fire-and-forget). */
   recordSongPlayed: RecordSongPlayed;
+  /** What the device is playing when no queue item is (issue #98). */
+  getExternalNowPlaying: GetExternalNowPlaying;
   clock: Clock;
 }
 
@@ -73,6 +78,7 @@ export function resolveDeps(options: QueueServiceOptions): QueueServiceDeps {
     emitAnalyticsEvent: options.emitAnalyticsEvent ?? noopEmitAnalyticsEvent,
     providerResolver: options.providerResolver ?? unavailableProviderResolver,
     recordSongPlayed: options.recordSongPlayed ?? noopRecordSongPlayed,
+    getExternalNowPlaying: options.getExternalNowPlaying ?? noopGetExternalNowPlaying,
     clock: options.clock ?? systemClock,
   };
 }
@@ -333,8 +339,26 @@ export class QueueService {
   // -----------------------------------------------------------------------
 
   async getQueueSnapshot(venueId: VenueId): Promise<QueueSnapshot> {
-    const { nowPlaying, ranked } = await this.recompute(venueId, { persist: false });
-    return buildQueueSnapshot({ nowPlaying, rankedQueued: ranked });
+    const { venue, nowPlaying, ranked } = await this.recompute(venueId, { persist: false });
+
+    // When nothing is `playing` the room is not necessarily silent: the venue's
+    // fallback playlist or the provider's own autoplay may be covering an empty
+    // queue. Report that instead of claiming silence (issue #98) — a patron
+    // reloading mid-fallback was seeing "nothing playing" over real music.
+    let nowPlayingExternal: ExternalNowPlaying | null = null;
+    if (!nowPlaying) {
+      const track = this.deps.getExternalNowPlaying(venueId);
+      if (track) {
+        nowPlayingExternal = {
+          track,
+          source: venue.fallbackPlaylist.includes(track.providerTrackId)
+            ? 'venue_playlist'
+            : 'provider_autoplay',
+        };
+      }
+    }
+
+    return buildQueueSnapshot({ nowPlaying, rankedQueued: ranked, nowPlayingExternal });
   }
 
   async getPosition(queueItemId: QueueItemId): Promise<QueuePositionResponse> {

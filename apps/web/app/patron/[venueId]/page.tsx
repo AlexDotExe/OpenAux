@@ -212,6 +212,7 @@ export default function PatronQueuePage() {
 
       <NowPlayingCard
         queueItem={nowPlayingItem}
+        external={nowPlayingItem ? null : (snapshot?.nowPlayingExternal ?? null)}
         djAttribution={djAttribution}
         crowdSkipVotes={
           channel.crowdSkip && channel.crowdSkip.queueItemId === nowPlayingItem?.queueItemId

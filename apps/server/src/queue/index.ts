@@ -31,6 +31,7 @@ import {
   type FrictionProvider,
   type MusicProviderResolver,
   type RecordSongPlayed,
+  type GetExternalNowPlaying,
 } from './seams.js';
 
 export interface RegisterQueueRoutesOptions {
@@ -41,6 +42,8 @@ export interface RegisterQueueRoutesOptions {
   providerResolver?: MusicProviderResolver;
   /** Reputation v2 credit when a requested song plays (WS6 seam; default noop). */
   recordSongPlayed?: RecordSongPlayed;
+  /** Reads device playback when no queue item is playing (issue #98). */
+  getExternalNowPlaying?: GetExternalNowPlaying;
   /** Lets the venue console search the catalog with its admin token (no patron session). */
   verifyVenueAdmin?: VerifyVenueAdmin;
   clock?: Clock;
@@ -76,6 +79,7 @@ export function registerQueueRoutes(
       emitAnalyticsEvent: options.emitAnalyticsEvent,
       providerResolver: options.providerResolver,
       recordSongPlayed: options.recordSongPlayed,
+      getExternalNowPlaying: options.getExternalNowPlaying,
       clock: options.clock,
     });
   registerQueueRouteHandlers(

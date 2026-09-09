@@ -9,7 +9,7 @@
  * The interval is unref'd so it never keeps the process alive on its own. poll()
  * is exposed so tests can drive a single sweep without real timers.
  */
-import type { MusicProvider, PlaybackTarget, VenueId } from '@openaux/shared';
+import type { MusicProvider, PlaybackTarget, Track, VenueId } from '@openaux/shared';
 
 /** One venue with live Spotify playback the poller should watch. */
 export interface ActiveSpotifyVenue {
@@ -35,6 +35,9 @@ export interface SpotifyPollerDeps {
   onPollObserved?: (obs: {
     venueId: VenueId;
     trackId: string | null;
+    /** Full track as reported by the provider — lets callers show what is
+     *  actually playing when it isn't a queue item (issue #98). */
+    track: Track | null;
     isPlaying: boolean;
     remainingMs: number | null;
     locked: boolean;
@@ -84,6 +87,7 @@ export function startSpotifyPlaybackPoller(deps: SpotifyPollerDeps): SpotifyPoll
     deps.onPollObserved?.({
       venueId: venue.venueId,
       trackId: currentId,
+      track: state.track ?? null,
       isPlaying: state.isPlaying,
       remainingMs: durationMs === null ? null : durationMs - state.positionMs,
       locked,

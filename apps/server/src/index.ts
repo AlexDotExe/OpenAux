@@ -13,6 +13,7 @@ import type {
   MusicProvider,
   MusicProviderId,
   PlaybackTarget,
+  Track,
   RealtimeEvent,
 } from '@openaux/shared';
 
@@ -197,6 +198,14 @@ async function main(): Promise<void> {
     emitEvent: emitAnalyticsEvent,
   };
 
+  // Last thing the device was observed playing, per venue. Read by the queue
+  // snapshot when no queue item is `playing`, so a patron sees the fallback
+  // playlist / provider autoplay instead of "nothing playing" (issue #98).
+  // Deliberately in-memory and short-lived: it mirrors a live device, and a
+  // stale entry is worse than none, so observations expire.
+  const EXTERNAL_NOW_PLAYING_TTL_MS = 30_000;
+  const lastObservedByVenue = new Map<string, { track: Track; at: number }>();
+
   const queueOptions = {
     repository: queueRepository,
     frictionProvider,
@@ -207,6 +216,12 @@ async function main(): Promise<void> {
     // admin token rather than a patron session.
     verifyVenueAdmin: (venueId: string, token: string | null) =>
       venueAdminVerifier.verifyVenueAdmin(venueId, token),
+    getExternalNowPlaying: (venueId: string) => {
+      const seen = lastObservedByVenue.get(venueId);
+      if (!seen) return null;
+      if (Date.now() - seen.at > EXTERNAL_NOW_PLAYING_TTL_MS) return null;
+      return seen.track;
+    },
     recordSongPlayed: ({
       userId,
       venueId,
@@ -333,7 +348,14 @@ async function main(): Promise<void> {
     lockLeadMs: Number(process.env.NEXT_SONG_LOCK_LEAD_MS ?? 10_000),
     // Debug-level: this fires every poll per venue, so it only emits under
     // LOG_LEVEL=debug. Invaluable for answering "why didn't the lock fire?".
-    onPollObserved: (obs) => app.log.debug(obs, 'playback poll observed'),
+    onPollObserved: (obs) => {
+      if (obs.isPlaying && obs.track) {
+        lastObservedByVenue.set(obs.venueId, { track: obs.track, at: Date.now() });
+      } else {
+        lastObservedByVenue.delete(obs.venueId);
+      }
+      app.log.debug(obs, 'playback poll observed');
+    },
     // Tighter than the 5s default: between a song ending and us detecting it,
     // Spotify's own autoplay fills the gap with something the crowd didn't pick,
     // so this interval IS the window of wrong music. Tunable because it trades

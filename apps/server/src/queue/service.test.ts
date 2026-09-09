@@ -1100,3 +1100,59 @@ describe('QueueService — issue #99 regressions', () => {
     expect(res2.nowPlaying?.queueItemId).toBe('second');
   });
 });
+
+describe('QueueService.getQueueSnapshot — external now playing (issue #98)', () => {
+  it('reports provider autoplay when the queue is empty but the device is playing', async () => {
+    const repo = new FakeRepo();
+    const { service } = build(repo, new Map());
+    const observed = track({ providerTrackId: 'trk-auto', title: 'Autoplayed' });
+
+    const svc = new QueueService({
+      repository: repo,
+      clock,
+      getExternalNowPlaying: () => observed,
+    });
+    void service;
+
+    const snap = await svc.getQueueSnapshot('v1');
+    expect(snap.nowPlaying).toBeNull();
+    expect(snap.nowPlayingExternal).toEqual({ track: observed, source: 'provider_autoplay' });
+  });
+
+  it('labels it venue_playlist when the track is in the fallback playlist', async () => {
+    const repo = new FakeRepo();
+    repo.venue = { ...repo.venue, fallbackPlaylist: ['trk-fallback'] };
+    const observed = track({ providerTrackId: 'trk-fallback', title: 'House Playlist' });
+
+    const svc = new QueueService({
+      repository: repo,
+      clock,
+      getExternalNowPlaying: () => observed,
+    });
+
+    const snap = await svc.getQueueSnapshot('v1');
+    expect(snap.nowPlayingExternal).toEqual({ track: observed, source: 'venue_playlist' });
+  });
+
+  it('prefers a real queue item — external is only a fallback for silence', async () => {
+    const repo = new FakeRepo();
+    repo.items.set('live', makeQueueItem({ queueItemId: 'live', status: 'playing' }));
+    const svc = new QueueService({
+      repository: repo,
+      clock,
+      getExternalNowPlaying: () => track({ providerTrackId: 'trk-auto' }),
+    });
+
+    const snap = await svc.getQueueSnapshot('v1');
+    expect(snap.nowPlaying?.queueItemId).toBe('live');
+    expect(snap.nowPlayingExternal).toBeNull();
+  });
+
+  it('is null when nothing is playing at all', async () => {
+    const repo = new FakeRepo();
+    const svc = new QueueService({ repository: repo, clock });
+    const snap = await svc.getQueueSnapshot('v1');
+    expect(snap.nowPlaying).toBeNull();
+    expect(snap.nowPlayingExternal).toBeNull();
+  });
+});
