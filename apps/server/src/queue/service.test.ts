@@ -165,6 +165,14 @@ class FakeRepo implements QueueRepository {
   async recordRequestOnSession() {
     this.recordRequestCalls += 1;
   }
+  async countActiveRequests(venueId: string, userId: string) {
+    return [...this.items.values()].filter(
+      (i) =>
+        i.venueId === venueId &&
+        i.requestingUserId === userId &&
+        (i.status === 'queued' || i.status === 'playing'),
+    ).length;
+  }
   async setForcedNextItem(venueId: string, queueItemId: string) {
     this.forcedNextByVenue.set(venueId, queueItemId);
   }
@@ -292,6 +300,66 @@ describe('QueueService.createRequest', () => {
     await expect(
       service.createRequest({ venueId: 'v1', sessionId: 'nope', providerTrackId: 'trk-1' }),
     ).rejects.toBeInstanceOf(QueueError);
+  });
+
+  // Regression coverage for issue #97: sessions.active_request_count was increment-only
+  // and never decremented, so a patron who cycled through 3 requests was blocked forever.
+  // The count is now derived from live queue_items at request time instead.
+  describe('max active requests (issue #97 — derived, not the stored counter)', () => {
+    it('blocks a patron with 3 live (queued) requests', async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const item = makeQueueItem({ venueId: 'v1', requestingUserId: 'u1', status: 'queued' });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      await expect(
+        service.createRequest({ venueId: 'v1', sessionId: 's1', providerTrackId: 'trk-1' }),
+      ).rejects.toMatchObject({ code: 'max_active_requests' });
+    });
+
+    it('blocks a patron with 3 live (playing) requests too', async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const item = makeQueueItem({ venueId: 'v1', requestingUserId: 'u1', status: 'playing' });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      await expect(
+        service.createRequest({ venueId: 'v1', sessionId: 's1', providerTrackId: 'trk-1' }),
+      ).rejects.toMatchObject({ code: 'max_active_requests' });
+    });
+
+    it('allows a 4th request once the prior 3 reach a terminal status', async () => {
+      const terminalStatuses = ['played', 'skipped', 'expired'] as const;
+      for (const status of terminalStatuses) {
+        const item = makeQueueItem({ venueId: 'v1', requestingUserId: 'u1', status });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      const result = await service.createRequest({
+        venueId: 'v1',
+        sessionId: 's1',
+        providerTrackId: 'trk-1',
+      });
+      expect(result.queueItem.songId).toBe('trk-1');
+    });
+
+    it('does not count another user’s live requests toward this patron’s limit', async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const item = makeQueueItem({
+          venueId: 'v1',
+          requestingUserId: 'someone-else',
+          status: 'queued',
+        });
+        repo.items.set(item.queueItemId, item);
+      }
+      const { service } = build(repo, new Map([['trk-1', track()]]));
+      const result = await service.createRequest({
+        venueId: 'v1',
+        sessionId: 's1',
+        providerTrackId: 'trk-1',
+      });
+      expect(result.queueItem.songId).toBe('trk-1');
+    });
   });
 });
 

@@ -109,6 +109,15 @@ export interface QueueRepository {
    * but the queue increments the counters it gates on transactionally at request time). */
   recordRequestOnSession(sessionId: SessionId, now: Date, cooldownEndsAt: Date): Promise<void>;
 
+  /**
+   * Live (status = 'queued' or 'playing') request count for a user at a venue — the
+   * eligibility-layer source of truth for `MAX_ACTIVE_REQUESTS_PER_USER` (issue #97).
+   * Derived from `queue_items` at call time rather than trusted from a stored counter,
+   * so it can never drift: a song reaching any terminal status (played/skipped/expired/
+   * blocked) drops out of the count on its own, with no decrement path to maintain.
+   */
+  countActiveRequests(venueId: VenueId, userId: UserId): Promise<number>;
+
   // -------------------------------------------------------------------------
   // Overrides layer — forced-next marker (QueueService.playNext)
   // -------------------------------------------------------------------------
@@ -497,6 +506,11 @@ export class PostgresQueueRepository implements QueueRepository {
     cooldownEndsAt: Date,
   ): Promise<void> {
     await this.pool.query(
+      // NOTE (issue #97): active_request_count is now vestigial — eligibility reads
+      // countActiveRequests() below instead, which derives the live count from
+      // queue_items and cannot drift. This increment (and the column itself) is only
+      // still written to avoid a drive-by contract change; a future contract commit
+      // should drop `sessions.active_request_count` from db/schema.sql + domain.ts.
       `update sessions set
          active_request_count = active_request_count + 1,
          last_request_at = $2,
@@ -505,5 +519,14 @@ export class PostgresQueueRepository implements QueueRepository {
        where session_id = $1`,
       [sessionId, now, cooldownEndsAt],
     );
+  }
+
+  async countActiveRequests(venueId: VenueId, userId: UserId): Promise<number> {
+    const { rows } = await this.pool.query(
+      `select count(*)::int as n from queue_items
+         where venue_id = $1 and requesting_user_id = $2 and status in ('queued', 'playing')`,
+      [venueId, userId],
+    );
+    return rows[0]?.n ?? 0;
   }
 }

@@ -427,3 +427,131 @@ describe('boost codes', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #97: sessions.active_request_count was increment-only and never
+// decremented, so a patron who cycled through MAX_ACTIVE_REQUESTS_PER_USER (3)
+// requests was blocked forever — even after every one of those songs had
+// finished playing. This is a STATEFUL bug: it only shows up after a full
+// request -> terminal-status cycle, which is exactly why the rest of this
+// suite (each patron requests once) and the unit suite (fresh state per test)
+// both missed it. Uses its own venue + patron so it doesn't depend on, or
+// disturb, the ordered state above.
+// ---------------------------------------------------------------------------
+describe('issue #97: active-request count unblocks once requests go terminal', () => {
+  const s = {
+    ownerToken: '',
+    venueId: '',
+    qrToken: '',
+    session: { sessionId: '', userId: '' },
+    items: [] as string[],
+  };
+
+  /**
+   * The request-cooldown (2 minutes, unrelated to this bug) would otherwise force
+   * this test to sleep for several real minutes between requests. Reset it directly
+   * via SQL so the test exercises the eligibility path under test — the derived
+   * active-request count — without also becoming a slow clock test.
+   */
+  async function clearCooldown(sessionId: string): Promise<void> {
+    const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL });
+    try {
+      await pool.query(
+        `update sessions
+           set cooldown_ends_at = now() - interval '1 hour',
+               last_request_at = now() - interval '1 hour'
+         where session_id = $1`,
+        [sessionId],
+      );
+    } finally {
+      await pool.end();
+    }
+  }
+
+  it('sets up a fresh venue and a single patron', async () => {
+    const signup = await api.post<{ token: string }>(ctx, '/api/venue-owners/signup', {
+      email: `integration-97-${randomUUID()}@example.test`,
+      password: 'integration-password',
+      displayName: 'Issue 97 Owner',
+    });
+    s.ownerToken = signup.token;
+
+    const created = await api.post<{ venue: { venueId: string; qrToken: string } }>(
+      ctx,
+      '/api/venues',
+      { name: 'Issue 97 Venue', musicProvider: 'spotify' },
+      asAdmin(s.ownerToken),
+    );
+    s.venueId = created.venue.venueId;
+    s.qrToken = created.venue.qrToken;
+
+    const joined = await api.post<{ session: { sessionId: string; userId: string } }>(
+      ctx,
+      '/api/sessions/join',
+      { venueQrToken: s.qrToken },
+    );
+    s.session = joined.session;
+  });
+
+  it('blocks a 4th request once the patron has 3 live (queued) requests', async () => {
+    for (let i = 0; i < 3; i += 1) {
+      if (i > 0) await clearCooldown(s.session.sessionId);
+      const res = await api.post<{ queueItem: QueueItem }>(
+        ctx,
+        `/api/venues/${s.venueId}/requests`,
+        { providerTrackId: FAKE_TRACKS[i] },
+        asSession(s.session.sessionId),
+      );
+      expect(res.queueItem.status).toBe('queued');
+      s.items.push(res.queueItem.queueItemId);
+    }
+    expect(s.items).toHaveLength(3);
+
+    await clearCooldown(s.session.sessionId);
+    await expect(
+      api.post(
+        ctx,
+        `/api/venues/${s.venueId}/requests`,
+        { providerTrackId: FAKE_TRACKS[3] },
+        asSession(s.session.sessionId),
+      ),
+    ).rejects.toMatchObject({ code: 'max_active_requests' });
+  });
+
+  it('drives all 3 requests to a terminal status via real advance() calls', async () => {
+    // Each advance() call finishes whatever is currently playing (-> 'played') and
+    // starts the next queued item, so items.length + 1 calls exhausts every item
+    // this patron requested to a terminal status.
+    for (let i = 0; i <= s.items.length; i += 1) {
+      await api.post(
+        ctx,
+        `/api/venues/${s.venueId}/playback/state`,
+        { isPlaying: false, positionMs: 0, providerTrackId: null, trackEnded: true },
+        asAdmin(CONSOLE_TOKEN),
+      );
+    }
+
+    const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL });
+    try {
+      const { rows } = await pool.query<{ status: string }>(
+        `select status from queue_items where queue_item_id = any($1::uuid[])`,
+        [s.items],
+      );
+      expect(rows).toHaveLength(3);
+      expect(rows.every((r) => r.status === 'played')).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('THE REGRESSION: allows a 4th request now that all 3 prior ones are terminal', async () => {
+    await clearCooldown(s.session.sessionId);
+    const res = await api.post<{ queueItem: QueueItem }>(
+      ctx,
+      `/api/venues/${s.venueId}/requests`,
+      { providerTrackId: FAKE_TRACKS[3] },
+      asSession(s.session.sessionId),
+    );
+    expect(res.queueItem.status).toBe('queued');
+  });
+});
