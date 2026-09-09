@@ -56,7 +56,11 @@ import {
   registerProviderAuthRoutes,
 } from './providers/index.js';
 import type { VenueTokenStore } from './providers/index.js';
-import { RealtimePlaybackBridge, registerPlaybackRoutes } from './playback/index.js';
+import {
+  RealtimePlaybackBridge,
+  registerPlaybackRoutes,
+  startSpotifyPlaybackPoller,
+} from './playback/index.js';
 import {
   PgVenueAuthRepository,
   createVenueAdminVerifier,
@@ -294,6 +298,50 @@ async function main(): Promise<void> {
     resolveCommand: (commandId) => playbackBridge.resolveCommand(commandId),
     stateStore: playbackBridge.store,
   });
+
+  // --- End-of-track detection for Spotify Connect venues.
+  // Spotify venues have no console reporting state, so nothing would ever call
+  // onTrackEnded and the queue would never advance on its own — playback would
+  // fall through to Spotify's own autoplay after each song. Poll each active
+  // venue's now-playing and advance the crowd queue on a track transition.
+  const spotifyPoller = startSpotifyPlaybackPoller({
+    listActiveSpotifyVenues: async () => {
+      const { rows } = await pool.query<{ venue_id: string }>(
+        `select v.venue_id
+           from venues v
+           join venue_provider_tokens t
+             on t.venue_id = v.venue_id and t.provider = 'spotify'
+          where v.music_provider = 'spotify'
+            and v.playback_device_id is not null`,
+      );
+      return Promise.all(
+        rows.map(async (row) => ({
+          venueId: row.venue_id,
+          provider: await queueProviderResolver.getProvider(row.venue_id),
+          target: await queueProviderResolver.getPlaybackTarget(row.venue_id),
+        })),
+      );
+    },
+    onTrackEnded: (venueId) => queueService.advance({ venueId, reason: 'ended' }),
+    // 10s before the end, commit the crowd's next pick and prime the device, so
+    // the handover is gapless and Spotify never autoplays something unpicked.
+    onTrackEnding: async (venueId) => {
+      const { locked, reason } = await queueService.lockNextUp(venueId);
+      app.log.info({ venueId, reason, title: locked?.title ?? null }, 'next-song lock');
+      return locked;
+    },
+    lockLeadMs: Number(process.env.NEXT_SONG_LOCK_LEAD_MS ?? 10_000),
+    // Debug-level: this fires every poll per venue, so it only emits under
+    // LOG_LEVEL=debug. Invaluable for answering "why didn't the lock fire?".
+    onPollObserved: (obs) => app.log.debug(obs, 'playback poll observed'),
+    // Tighter than the 5s default: between a song ending and us detecting it,
+    // Spotify's own autoplay fills the gap with something the crowd didn't pick,
+    // so this interval IS the window of wrong music. Tunable because it trades
+    // that window against Spotify API call volume per venue.
+    intervalMs: Number(process.env.SPOTIFY_POLL_INTERVAL_MS ?? 2000),
+    onError: (err, venueId) => app.log.error({ err, venueId }, 'spotify playback poll failed'),
+  });
+  app.addHook('onClose', async () => spotifyPoller.stop());
 
   // --- Spotify OAuth linking + Connect device selection. Only mounted when an
   // encryption key exists (the routes construct a TokenCipher eagerly); without

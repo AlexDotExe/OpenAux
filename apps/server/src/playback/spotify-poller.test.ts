@@ -42,6 +42,11 @@ function playing(id: string): NowPlayingState {
 }
 const IDLE: NowPlayingState = { track: null, positionMs: 0, isPlaying: false };
 
+/** Same track, but `remainingMs` from the end (durationMs is 200_000). */
+function nearEnd(id: string, remainingMs: number, isPlaying = true): NowPlayingState {
+  return { track: track(id), positionMs: 200_000 - remainingMs, isPlaying };
+}
+
 function venue(provider: MusicProvider): ActiveSpotifyVenue {
   return { venueId: 'venue-1', target: TARGET, provider };
 }
@@ -160,6 +165,88 @@ describe('startSpotifyPlaybackPoller', () => {
     active = true;
     await poller.poll(); // sees 'b' fresh, treated as first observation -> no fire
     expect(onTrackEnded).not.toHaveBeenCalled();
+    poller.stop();
+  });
+
+  it('locks the next song once the current track is inside the lock lead', async () => {
+    const onTrackEnding = vi.fn(async () => {});
+    // Mid-track, then 8s from the end (inside the default 10s lead).
+    const provider = scriptedProvider([playing('a'), nearEnd('a', 8_000)]);
+    const poller = startSpotifyPlaybackPoller({
+      listActiveSpotifyVenues: () => [venue(provider)],
+      onTrackEnded: async () => {},
+      onTrackEnding,
+    });
+
+    await poller.poll();
+    expect(onTrackEnding).not.toHaveBeenCalled(); // still mid-track
+
+    await poller.poll();
+    expect(onTrackEnding).toHaveBeenCalledWith('venue-1');
+    poller.stop();
+  });
+
+  it('locks only once per track even while it keeps polling near the end', async () => {
+    const onTrackEnding = vi.fn(async () => {});
+    const provider = scriptedProvider([
+      nearEnd('a', 9_000),
+      nearEnd('a', 6_000),
+      nearEnd('a', 3_000),
+    ]);
+    const poller = startSpotifyPlaybackPoller({
+      listActiveSpotifyVenues: () => [venue(provider)],
+      onTrackEnded: async () => {},
+      onTrackEnding,
+    });
+
+    await poller.poll();
+    await poller.poll();
+    await poller.poll();
+    expect(onTrackEnding).toHaveBeenCalledTimes(1);
+    poller.stop();
+  });
+
+  it('locks again for the NEXT track after a transition', async () => {
+    const onTrackEnding = vi.fn(async () => {});
+    const provider = scriptedProvider([nearEnd('a', 5_000), nearEnd('b', 5_000)]);
+    const poller = startSpotifyPlaybackPoller({
+      listActiveSpotifyVenues: () => [venue(provider)],
+      onTrackEnded: async () => {},
+      onTrackEnding,
+    });
+
+    await poller.poll();
+    await poller.poll();
+    expect(onTrackEnding).toHaveBeenCalledTimes(2);
+    poller.stop();
+  });
+
+  it('does not lock while paused near the end', async () => {
+    const onTrackEnding = vi.fn(async () => {});
+    const provider = scriptedProvider([nearEnd('a', 5_000, false)]);
+    const poller = startSpotifyPlaybackPoller({
+      listActiveSpotifyVenues: () => [venue(provider)],
+      onTrackEnded: async () => {},
+      onTrackEnding,
+    });
+
+    await poller.poll();
+    expect(onTrackEnding).not.toHaveBeenCalled();
+    poller.stop();
+  });
+
+  it('honors a custom lock lead', async () => {
+    const onTrackEnding = vi.fn(async () => {});
+    const provider = scriptedProvider([nearEnd('a', 20_000)]);
+    const poller = startSpotifyPlaybackPoller({
+      listActiveSpotifyVenues: () => [venue(provider)],
+      onTrackEnded: async () => {},
+      onTrackEnding,
+      lockLeadMs: 30_000,
+    });
+
+    await poller.poll();
+    expect(onTrackEnding).toHaveBeenCalledTimes(1);
     poller.stop();
   });
 });

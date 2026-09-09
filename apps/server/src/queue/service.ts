@@ -77,6 +77,13 @@ export function resolveDeps(options: QueueServiceOptions): QueueServiceDeps {
   };
 }
 
+/** Outcome of a next-song lock. The reason is why nothing was locked, which
+ * callers log — a silent null made a live failure impossible to diagnose. */
+export interface LockNextUpResult {
+  locked: QueueItem | null;
+  reason: 'locked' | 'already_forced' | 'no_eligible_item';
+}
+
 interface RecomputeResult {
   venue: VenueConfig;
   nowPlaying: QueueItem | null;
@@ -333,6 +340,77 @@ export class QueueService {
   // -----------------------------------------------------------------------
   // DJ brain (layers 3 & 4) — advance on song end / skip
   // -----------------------------------------------------------------------
+
+  /**
+   * Lock in the next song shortly before the current one ends (SPEC.md §2:
+   * the backend is the playback authority).
+   *
+   * Two things happen together, and both matter:
+   *  1. The winning item is written as the venue's forced-next marker, so the
+   *     later advance() plays exactly what we committed to. Without this the
+   *     queue would re-rank in the final seconds and the DB could disagree with
+   *     what the device actually plays.
+   *  2. The track is queued on the provider, so when the current song ends the
+   *     device continues straight into the crowd's pick instead of falling
+   *     through to the provider's own autoplay.
+   *
+   * No-ops when a forced pick already exists (an earlier lock, or a venue
+   * override — the venue outranks us) or when nothing is eligible, in which case
+   * advance() still handles fallback/silence as usual.
+   */
+  async lockNextUp(venueId: VenueId): Promise<LockNextUpResult> {
+    const { repository } = this.deps;
+    const venue = await repository.getVenueConfig(venueId);
+    if (!venue) throw new QueueError('not_found', 'Venue not found.');
+
+    // Never clobber an existing forced pick.
+    const existingForced = await repository.getForcedNextItem(venueId);
+    if (existingForced) return { locked: null, reason: 'already_forced' };
+
+    const { ranked, activeUserCount } = await this.recompute(venueId, { persist: false });
+    const [recentArtists, playedCount] = await Promise.all([
+      repository.getRecentPlayedArtists(venueId, ARTIST_REPEAT_WINDOW),
+      repository.getPlayedCount(venueId),
+    ]);
+
+    const selection = selectNextTrack({
+      rankedItems: ranked,
+      recentArtists,
+      context: { controlMode: venue.controlMode },
+      fallbackPlaylist: venue.fallbackPlaylist,
+      fallbackCursor: playedCount,
+      forcedItemId: null,
+      gate:
+        venue.scoringModel === 'v1'
+          ? (item) =>
+              passesPlayabilityGate({
+                upvotesCount: item.upvotesCount,
+                downvotesCount: item.downvotesCount,
+                supporterCount: item.upvotesCount,
+                activeUserCount,
+              })
+          : undefined,
+    });
+
+    // Only a real queue item can be locked. Fallback-playlist selection stays a
+    // decision for advance() so the cursor advances exactly once.
+    if (selection.kind !== 'queue_item') return { locked: null, reason: 'no_eligible_item' };
+
+    await repository.setForcedNextItem(venueId, selection.item.queueItemId);
+
+    // Prime the device so the handover is gapless. A provider failure here is
+    // non-fatal: the lock still holds and advance() will start the track itself.
+    try {
+      const provider = await this.deps.providerResolver.getProvider(venueId);
+      const target = await this.deps.providerResolver.getPlaybackTarget(venueId);
+      const track = await provider.getTrack(selection.item.songId);
+      if (track) await provider.queueNext(target, track);
+    } catch {
+      // Swallowed by design — see above.
+    }
+
+    return { locked: selection.item, reason: 'locked' };
+  }
 
   /**
    * Advance the queue: finish the current song, pick the next playable item (vibe
