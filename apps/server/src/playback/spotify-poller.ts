@@ -23,6 +23,14 @@ export interface SpotifyPollerDeps {
   listActiveSpotifyVenues: () => Promise<ActiveSpotifyVenue[]> | ActiveSpotifyVenue[];
   /** Called once per detected track-end/transition. Wired to WS3 queue advance. */
   onTrackEnded: (venueId: VenueId) => Promise<unknown>;
+  /**
+   * Called once per track, when it is within `lockLeadMs` of finishing. Wired to
+   * WS3's lockNextUp: it commits the crowd's next pick and primes the device so
+   * the handover is gapless instead of falling through to provider autoplay.
+   */
+  onTrackEnding?: (venueId: VenueId) => Promise<unknown>;
+  /** How long before the end to lock the next song. Defaults to 10s. */
+  lockLeadMs?: number;
   /** Poll cadence; defaults to 5000ms. */
   intervalMs?: number;
   /** Non-fatal error hook — a failing venue must not stop the sweep or the loop. */
@@ -38,10 +46,13 @@ export interface SpotifyPollerHandle {
 
 interface LastSeen {
   providerTrackId: string | null;
+  /** Whether we already locked the next song for THIS track (once per track). */
+  locked: boolean;
 }
 
 export function startSpotifyPlaybackPoller(deps: SpotifyPollerDeps): SpotifyPollerHandle {
   const intervalMs = deps.intervalMs ?? 5000;
+  const lockLeadMs = deps.lockLeadMs ?? 10_000;
   const onError = deps.onError ?? (() => {});
   const lastByVenue = new Map<VenueId, LastSeen>();
 
@@ -54,7 +65,27 @@ export function startSpotifyPlaybackPoller(deps: SpotifyPollerDeps): SpotifyPoll
     const trackEnded =
       prev !== undefined && prev.providerTrackId !== null && currentId !== prev.providerTrackId;
 
-    lastByVenue.set(venue.venueId, { providerTrackId: currentId });
+    // Carry the lock flag only while the SAME track is still playing; a new track
+    // starts unlocked so we lock exactly once per song.
+    const sameTrack = prev !== undefined && prev.providerTrackId === currentId;
+    let locked = sameTrack ? prev.locked : false;
+
+    // Approaching the end: commit the next pick and prime the device. Guarded on
+    // isPlaying so a paused venue sitting near the end doesn't lock repeatedly.
+    const durationMs = state.track?.durationMs ?? null;
+    if (
+      !locked &&
+      deps.onTrackEnding &&
+      state.isPlaying &&
+      currentId !== null &&
+      durationMs !== null &&
+      durationMs - state.positionMs <= lockLeadMs
+    ) {
+      locked = true;
+      await deps.onTrackEnding(venue.venueId);
+    }
+
+    lastByVenue.set(venue.venueId, { providerTrackId: currentId, locked });
 
     if (trackEnded) {
       await deps.onTrackEnded(venue.venueId);

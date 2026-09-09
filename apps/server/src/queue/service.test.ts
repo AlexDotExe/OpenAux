@@ -825,3 +825,83 @@ describe('QueueService V1 scoring model + playability gate', () => {
     expect(res.nowPlaying?.queueItemId).toBe('weak');
   });
 });
+
+describe('QueueService.lockNextUp', () => {
+  it('commits the top pick as forced-next and primes the device', async () => {
+    const repo = new FakeRepo();
+    repo.sessions.set('s1', makeSession());
+    repo.items.set(
+      'winner',
+      makeQueueItem({ queueItemId: 'winner', status: 'queued', currentScore: 9, songId: 'trk-win' }),
+    );
+    repo.items.set(
+      'loser',
+      makeQueueItem({ queueItemId: 'loser', status: 'queued', currentScore: 1, songId: 'trk-lose' }),
+    );
+    const { service, provider } = build(
+      repo,
+      new Map([
+        ['trk-win', track({ providerTrackId: 'trk-win' })],
+        ['trk-lose', track({ providerTrackId: 'trk-lose' })],
+      ]),
+    );
+
+    const locked = await service.lockNextUp('v1');
+
+    expect(locked?.queueItemId).toBe('winner');
+    // The commitment advance() will honor.
+    expect(await repo.getForcedNextItem('v1')).toBe('winner');
+    // And the device was primed so the handover is gapless.
+    expect(provider.queued.map((t) => t.providerTrackId)).toEqual(['trk-win']);
+  });
+
+  it('never clobbers an existing forced pick (e.g. a venue override)', async () => {
+    const repo = new FakeRepo();
+    repo.items.set(
+      'crowd',
+      makeQueueItem({ queueItemId: 'crowd', status: 'queued', currentScore: 9, songId: 'trk-a' }),
+    );
+    await repo.setForcedNextItem('v1', 'venue-override');
+    const { service } = build(repo, new Map([['trk-a', track({ providerTrackId: 'trk-a' })]]));
+
+    expect(await service.lockNextUp('v1')).toBeNull();
+    expect(await repo.getForcedNextItem('v1')).toBe('venue-override');
+  });
+
+  it('locks nothing when the queue is empty, leaving fallback to advance()', async () => {
+    const repo = new FakeRepo();
+    const { service } = build(repo, new Map());
+
+    expect(await service.lockNextUp('v1')).toBeNull();
+    expect(await repo.getForcedNextItem('v1')).toBeNull();
+  });
+
+  it('advance() then plays exactly what was locked', async () => {
+    const repo = new FakeRepo();
+    repo.items.set(
+      'winner',
+      makeQueueItem({ queueItemId: 'winner', status: 'queued', currentScore: 9, songId: 'trk-win' }),
+    );
+    repo.items.set(
+      'other',
+      makeQueueItem({ queueItemId: 'other', status: 'queued', currentScore: 1, songId: 'trk-oth' }),
+    );
+    const { service } = build(
+      repo,
+      new Map([
+        ['trk-win', track({ providerTrackId: 'trk-win' })],
+        ['trk-oth', track({ providerTrackId: 'trk-oth' })],
+      ]),
+    );
+
+    await service.lockNextUp('v1');
+    // Someone downvotes the locked pick to the bottom AFTER the lock — the
+    // commitment must still hold, or the device and the DB would disagree.
+    repo.items.set('winner', { ...repo.items.get('winner')!, currentScore: -50 });
+
+    const res = await service.advance({ venueId: 'v1', reason: 'ended' });
+    expect(res.nowPlaying?.queueItemId).toBe('winner');
+    // One-shot: the marker is consumed.
+    expect(await repo.getForcedNextItem('v1')).toBeNull();
+  });
+});
