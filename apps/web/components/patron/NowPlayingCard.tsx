@@ -25,21 +25,42 @@ export function NowPlayingCard({
   skipVoteError = null,
 }: NowPlayingCardProps) {
   return (
-    <div className="card card--raised stack">
+    <div className={`card stack ${queueItem ? 'card--hero' : 'card--raised'}`}>
       <div className="row row--between">
-        <span className="pill pill--accent">Now Playing</span>
+        <span className="row" style={{ gap: 8 }}>
+          <span className="pill pill--accent">Now Playing</span>
+          {queueItem && (
+            <span className="eq" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+          )}
+        </span>
         {queueItem?.sourceType === 'override' && <span className="pill">Venue pick</span>}
         {queueItem?.sourceType === 'venue' && <span className="pill">Fallback playlist</span>}
       </div>
       {queueItem ? (
         <>
-          <div>
-            <div className="track-title" style={{ fontSize: '1.1rem' }}>
-              {queueItem.title}
+          <div className="row" style={{ gap: 14 }}>
+            <div className="art art--lg art--live" aria-hidden>
+              ♪
             </div>
-            <div className="track-artist">{queueItem.artist}</div>
+            <div className="track-meta">
+              <div className="track-title" style={{ fontSize: '1.2rem', fontWeight: 800 }}>
+                {queueItem.title}
+              </div>
+              <div className="track-artist">{queueItem.artist}</div>
+            </div>
           </div>
-          {djAttribution && <p className="helper-text">DJ {djAttribution} is playing this one</p>}
+          {djAttribution && (
+            <p className="helper-text">
+              <span style={{ color: 'var(--accent-strong)', fontWeight: 700 }}>
+                DJ {djAttribution}
+              </span>{' '}
+              is playing this one
+            </p>
+          )}
           {onSkipVote && (
             <div className="row row--between">
               <span className="helper-text">
