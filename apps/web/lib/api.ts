@@ -97,7 +97,9 @@ export interface ApiClient {
   createVenue(req: CreateVenueRequest, ownerToken: string): Promise<CreateVenueResponse>;
   joinSession(req: JoinSessionRequest): Promise<JoinSessionResponse>;
   getVenue(venueId: string): Promise<VenueSummary>;
-  search(venueId: string, query: string): Promise<SearchResponse>;
+  /** Catalog search. Requires identity: a patron session, or the venue-admin
+   * token when the console is picking an anthem/override/fallback track. */
+  search(venueId: string, query: string, auth: AuthContext): Promise<SearchResponse>;
   getQueue(venueId: string): Promise<QueueSnapshot>;
   createRequest(
     venueId: string,
@@ -253,8 +255,8 @@ export class HttpApiClient implements ApiClient {
     return request(`/api/venues/${venueId}`);
   }
 
-  search(venueId: string, query: string): Promise<SearchResponse> {
-    return request(`/api/venues/${venueId}/search?q=${encodeURIComponent(query)}`);
+  search(venueId: string, query: string, auth: AuthContext): Promise<SearchResponse> {
+    return request(`/api/venues/${venueId}/search?q=${encodeURIComponent(query)}`, { auth });
   }
 
   getQueue(venueId: string): Promise<QueueSnapshot> {

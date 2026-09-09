@@ -21,7 +21,7 @@
 import type { FastifyInstance } from 'fastify';
 import { pool } from '../db.js';
 import { PostgresQueueRepository, type QueueRepository } from './repository.js';
-import { registerQueueRouteHandlers } from './routes.js';
+import { registerQueueRouteHandlers, type VerifyVenueAdmin } from './routes.js';
 import { createQueueService, QueueService } from './service.js';
 import {
   unavailableProviderResolver,
@@ -41,6 +41,8 @@ export interface RegisterQueueRoutesOptions {
   providerResolver?: MusicProviderResolver;
   /** Reputation v2 credit when a requested song plays (WS6 seam; default noop). */
   recordSongPlayed?: RecordSongPlayed;
+  /** Lets the venue console search the catalog with its admin token (no patron session). */
+  verifyVenueAdmin?: VerifyVenueAdmin;
   clock?: Clock;
   /**
    * Pre-built service to register routes with, instead of constructing a new one from
@@ -81,6 +83,7 @@ export function registerQueueRoutes(
     service,
     repository,
     options.providerResolver ?? unavailableProviderResolver,
+    options.verifyVenueAdmin,
   );
   return service;
 }

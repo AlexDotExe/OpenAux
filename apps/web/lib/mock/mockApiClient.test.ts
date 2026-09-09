@@ -34,13 +34,13 @@ describe('mockApiClient', () => {
   describe('search', () => {
     it('matches by title or artist, case-insensitively', async () => {
       const client = createMockApiClient();
-      const res = await client.search(VENUE_ID, 'weeknd');
+      const res = await client.search(VENUE_ID, 'weeknd', {});
       expect(res.tracks.some((t) => t.title === 'Blinding Lights')).toBe(true);
     });
 
     it('returns nothing for a blank query', async () => {
       const client = createMockApiClient();
-      const res = await client.search(VENUE_ID, '   ');
+      const res = await client.search(VENUE_ID, '   ', {});
       expect(res.tracks).toEqual([]);
     });
   });

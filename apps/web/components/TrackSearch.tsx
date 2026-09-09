@@ -10,11 +10,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Track } from '@openaux/shared';
 
-import { ApiClientError, getApiClient } from '../lib/api';
+import { ApiClientError, getApiClient, type AuthContext } from '../lib/api';
 import { formatDuration } from '../lib/format';
 
 export interface TrackSearchProps {
   venueId: string;
+  /** Identity for the search call: patron session, or venue-admin token in the console. */
+  auth: AuthContext;
   onSelect: (track: Track) => void;
   selectLabel?: string;
   placeholder?: string;
@@ -22,6 +24,7 @@ export interface TrackSearchProps {
 
 export function TrackSearch({
   venueId,
+  auth,
   onSelect,
   selectLabel = 'Select',
   placeholder = 'Search songs or artists…',
@@ -43,7 +46,7 @@ export function TrackSearch({
     setLoading(true);
     debounceRef.current = setTimeout(() => {
       getApiClient()
-        .search(venueId, trimmed)
+        .search(venueId, trimmed, auth)
         .then((res) => {
           setResults(res.tracks);
           setError(null);

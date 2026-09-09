@@ -68,6 +68,7 @@ export function FallbackPlaylistEditor({
       {adding ? (
         <TrackSearch
           venueId={venueId}
+          auth={auth}
           selectLabel="Add"
           onSelect={(t) => {
             if (!tracks.some((x) => x.providerTrackId === t.providerTrackId)) save([...tracks, t]);

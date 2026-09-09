@@ -35,7 +35,7 @@ export function RequestSongPanel({ venueId, auth, onRequested }: RequestSongPane
 
   return (
     <div className="stack">
-      <TrackSearch venueId={venueId} onSelect={handleSelect} selectLabel="Request" />
+      <TrackSearch venueId={venueId} auth={auth} onSelect={handleSelect} selectLabel="Request" />
       {status.kind === 'error' && <p className="error-text">{status.message}</p>}
       {status.kind === 'ok' && (
         <p className="helper-text">Requested &ldquo;{status.title}&rdquo; 🎶</p>

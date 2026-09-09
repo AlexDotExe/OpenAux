@@ -65,7 +65,7 @@ export function AnthemSetupForm({ venueId, auth }: AnthemSetupFormProps) {
           </button>
         </div>
       ) : (
-        <TrackSearch venueId={venueId} onSelect={setSelected} selectLabel="Choose" />
+        <TrackSearch venueId={venueId} auth={auth} onSelect={setSelected} selectLabel="Choose" />
       )}
       <input
         type="text"

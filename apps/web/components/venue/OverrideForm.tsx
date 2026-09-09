@@ -61,7 +61,7 @@ export function OverrideForm({ venueId, auth }: OverrideFormProps) {
           </div>
         </div>
       ) : (
-        <TrackSearch venueId={venueId} onSelect={setSelected} selectLabel="Choose" />
+        <TrackSearch venueId={venueId} auth={auth} onSelect={setSelected} selectLabel="Choose" />
       )}
       {error && <p className="error-text">{error}</p>}
       {ok && <p className="helper-text">{ok}</p>}

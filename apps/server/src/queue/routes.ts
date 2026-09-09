@@ -28,6 +28,14 @@ function sendError(reply: FastifyReply, err: unknown): void {
   reply.status(500).send(apiError('internal', 'Unexpected error.'));
 }
 
+/** `Authorization: Bearer <token>` → token, or null. */
+function extractBearer(header: string | string[] | undefined): string | null {
+  const value = Array.isArray(header) ? header[0] : header;
+  if (!value) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(value.trim());
+  return match ? match[1]!.trim() : null;
+}
+
 function getSessionId(request: FastifyRequest): string {
   const header = request.headers[SESSION_HEADER];
   const sessionId = Array.isArray(header) ? header[0] : header;
@@ -35,11 +43,18 @@ function getSessionId(request: FastifyRequest): string {
   return sessionId;
 }
 
+/**
+ * Verifies a venue-admin bearer token for `venueId`. Injected by the composition
+ * root; defaults to "never an admin" so the seam is closed unless wired.
+ */
+export type VerifyVenueAdmin = (venueId: string, token: string | null) => Promise<boolean>;
+
 export function registerQueueRouteHandlers(
   app: FastifyInstance,
   service: QueueService,
   repository: QueueRepository,
   providerResolver: MusicProviderResolver,
+  verifyVenueAdmin: VerifyVenueAdmin = async () => false,
 ): void {
   // GET /api/venues/:venueId/search?q=...
   app.get(
@@ -52,12 +67,21 @@ export function registerQueueRouteHandlers(
       reply,
     ) => {
       try {
-        // Venue existence first, then the session — same order as
+        // Venue existence first, then identity — same order as
         // QueueService.createRequest, so an unknown venue is 404 rather than
         // masked as a session error.
         const venue = await repository.getVenueConfig(request.params.venueId);
         if (!venue) throw new QueueError('not_found', 'Venue not found.');
-        await resolveSessionForVenue(request, repository, request.params.venueId);
+        // Catalog search serves BOTH surfaces: patrons requesting a song and the
+        // venue console picking an anthem/override/fallback track. The console has
+        // no patron session, so a venue-admin bearer token is equally valid here.
+        const adminToken = extractBearer(request.headers.authorization);
+        const isAdmin = adminToken
+          ? await verifyVenueAdmin(request.params.venueId, adminToken)
+          : false;
+        if (!isAdmin) {
+          await resolveSessionForVenue(request, repository, request.params.venueId);
+        }
 
         const provider = await providerResolver.getProvider(request.params.venueId);
         const tracks = await provider.searchTracks(getSearchQuery(request), {
