@@ -214,7 +214,7 @@ function buildSnapshot(store: Store): QueueSnapshot {
   const upNext = ranked.slice(0, 3);
   const rest = shuffle([...ranked.slice(3), ...pendingApproval]);
 
-  return { nowPlaying: store.nowPlaying, upNext, rest };
+  return { nowPlaying: store.nowPlaying, nowPlayingExternal: null, upNext, rest };
 }
 
 /** Public venue summary reflecting the current Power Hour window (SPEC.md §5 V1). */

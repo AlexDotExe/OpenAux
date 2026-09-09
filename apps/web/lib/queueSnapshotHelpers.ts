@@ -15,6 +15,7 @@ export function mapSnapshotItem(
   const apply = (items: QueueItem[]) =>
     items.map((i) => (i.queueItemId === queueItemId ? fn(i) : i));
   return {
+    nowPlayingExternal: null,
     nowPlaying:
       snapshot.nowPlaying && snapshot.nowPlaying.queueItemId === queueItemId
         ? fn(snapshot.nowPlaying)

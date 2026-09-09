@@ -74,6 +74,7 @@ describe('mapSnapshotItem', () => {
     const target = makeQueueItem({ queueItemId: 'target', title: 'Old title' });
     const snapshot: QueueSnapshot = {
       nowPlaying: makeQueueItem({ queueItemId: 'now' }),
+      nowPlayingExternal: null,
       upNext: [target, makeQueueItem({ queueItemId: 'other' })],
       rest: [],
     };
@@ -85,7 +86,7 @@ describe('mapSnapshotItem', () => {
 
   it('updates nowPlaying when the id matches there', () => {
     const nowPlaying = makeQueueItem({ queueItemId: 'now', title: 'Old' });
-    const snapshot: QueueSnapshot = { nowPlaying, upNext: [], rest: [] };
+    const snapshot: QueueSnapshot = { nowPlaying, nowPlayingExternal: null, upNext: [], rest: [] };
     const next = mapSnapshotItem(snapshot, 'now', (i) => ({ ...i, title: 'New' }));
     expect(next.nowPlaying?.title).toBe('New');
   });
@@ -104,6 +105,7 @@ describe('collectMyItems', () => {
 
     const snapshot: QueueSnapshot = {
       nowPlaying: mine2,
+      nowPlayingExternal: null,
       upNext: [mine1],
       rest: [notMine, playedMine],
     };
@@ -114,6 +116,6 @@ describe('collectMyItems', () => {
 
   it('returns an empty array when there is no snapshot or user', () => {
     expect(collectMyItems(null, 'me')).toEqual([]);
-    expect(collectMyItems({ nowPlaying: null, upNext: [], rest: [] }, null)).toEqual([]);
+    expect(collectMyItems({ nowPlaying: null, nowPlayingExternal: null, upNext: [], rest: [] }, null)).toEqual([]);
   });
 });

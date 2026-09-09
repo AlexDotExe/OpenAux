@@ -28,6 +28,8 @@ export function shuffle<T>(items: T[], rng: () => number = Math.random): T[] {
 }
 
 export interface BuildSnapshotInput {
+  /** Audio playing that isn't a queue item (fallback playlist / provider autoplay). */
+  nowPlayingExternal?: import('@openaux/shared').ExternalNowPlaying | null;
   nowPlaying: QueueItem | null;
   /** Queued items, already ranked best-first. */
   rankedQueued: QueueItem[];
@@ -44,6 +46,7 @@ export function buildQueueSnapshot(input: BuildSnapshotInput): QueueSnapshot {
   const shuffleFn = input.shuffleFn ?? ((items: QueueItem[]) => shuffle(items));
   return {
     nowPlaying: input.nowPlaying,
+    nowPlayingExternal: input.nowPlayingExternal ?? null,
     upNext,
     rest: shuffleFn(restOrdered),
   };

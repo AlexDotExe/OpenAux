@@ -11,6 +11,7 @@
  */
 
 import type {
+  Track,
   AnalyticsEventType,
   MusicProvider,
   PlaybackTarget,
@@ -112,6 +113,21 @@ export type RecordSongPlayed = (input: {
 export const noopRecordSongPlayed: RecordSongPlayed = () => {
   /* no-op default */
 };
+
+// ---------------------------------------------------------------------------
+// External playback observation — WS2/playback. Default: nothing observed.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the venue device is currently playing, as last observed by the playback
+ * layer. Only consulted when no queue item is `playing`: that means the device
+ * is either on the venue's fallback playlist or on the provider's own autoplay,
+ * and the snapshot must be able to say so rather than claim silence (issue #98).
+ * Returns null when nothing is playing or the observation is unavailable.
+ */
+export type GetExternalNowPlaying = (venueId: VenueId) => Track | null;
+
+export const noopGetExternalNowPlaying: GetExternalNowPlaying = () => null;
 
 // ---------------------------------------------------------------------------
 // Music provider access — WS2 (only providers/ may touch concrete SDKs)

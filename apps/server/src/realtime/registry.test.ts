@@ -9,7 +9,7 @@ function mockSocket(
   return { readyState, send: vi.fn() };
 }
 
-const EMPTY_QUEUE: QueueSnapshot = { nowPlaying: null, upNext: [], rest: [] };
+const EMPTY_QUEUE: QueueSnapshot = { nowPlaying: null, nowPlayingExternal: null, upNext: [], rest: [] };
 
 describe('ConnectionRegistry.broadcastToVenue', () => {
   it('fans an event out to every open connection on that venue', () => {

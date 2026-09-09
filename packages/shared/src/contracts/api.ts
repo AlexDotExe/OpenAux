@@ -140,8 +140,27 @@ export interface SearchResponse {
 }
 
 /** GET /api/venues/:venueId/queue */
+/**
+ * Audio the venue device is playing that is NOT a crowd queue item.
+ *
+ * Two ways this happens: the venue's silence-fallback playlist is covering an
+ * empty queue, or the provider kept playing on its own after the queue ran dry.
+ * `QueueSnapshot.nowPlaying` is a `QueueItem`, so it structurally cannot
+ * represent either case — without this, a patron reloading during one sees
+ * "nothing playing" while music is audibly playing.
+ */
+export interface ExternalNowPlaying {
+  track: Track;
+  source: "venue_playlist" | "provider_autoplay";
+}
+
 export interface QueueSnapshot {
   nowPlaying: QueueItem | null;
+  /**
+   * Set only when `nowPlaying` is null but the device is still producing sound.
+   * The UI should show this as playing, clearly marked as not a crowd pick.
+   */
+  nowPlayingExternal: ExternalNowPlaying | null;
   /** Top 3 by rank — the ordered "Up Next" list. */
   upNext: QueueItem[];
   /** Remaining queued items; server pre-shuffles (V1 two-list display). */

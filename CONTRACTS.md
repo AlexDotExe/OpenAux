@@ -70,6 +70,16 @@ Realtime channel: `WS /ws/venues/:venueId` — events in `realtime-events.ts`.
 
 ## Changelog
 
+- **2026-09-09** — `QueueSnapshot.nowPlayingExternal` (api contract):
+  - New `ExternalNowPlaying { track, source: 'venue_playlist' | 'provider_autoplay' }`
+    and `QueueSnapshot.nowPlayingExternal: ExternalNowPlaying | null`.
+  - Why: `nowPlaying` is a `QueueItem`, so it cannot represent audio that isn't a
+    crowd pick. When the venue's fallback playlist covers an empty queue, or the
+    provider autoplays after the queue runs dry, `advance()` returns
+    `nowPlaying: null` — so a patron reloading sees "nothing playing" over real
+    music. This field lets the UI show what is actually playing, marked as not a
+    crowd pick.
+
 - **2026-09-07** — `MusicProvider.play` gains an optional track (provider contract):
   - `play(target: PlaybackTarget, track?: Track)` — when `track` is supplied the
     device must play THAT track; omitting it keeps the old resume semantics.
