@@ -20,30 +20,42 @@ export function QueueItemRow({
   onToggleVote,
 }: QueueItemRowProps) {
   const pending = item.playabilityState === 'awaiting_approval';
+  const boosted = item.priorityBoostCount > 0 || item.instantVoteCount > 0;
 
   return (
-    <div className="card stack" style={{ opacity: pending ? 0.75 : 1 }}>
-      <div className="row row--between">
-        <div className="row">
-          {rank !== undefined && <span className="pill pill--accent">#{rank}</span>}
-          {isMine && <span className="pill">Your song</span>}
+    <div
+      className={`card stack stack--tight ${isMine ? 'card--accent' : ''}`}
+      style={{ opacity: pending ? 0.7 : 1, padding: '12px 14px' }}
+    >
+      <div className="row" style={{ gap: 12 }}>
+        {rank !== undefined && (
+          <span className={`track-rank ${rank <= 3 ? 'track-rank--top' : ''}`}>{rank}</span>
+        )}
+        <div className="art" aria-hidden>
+          ♪
+        </div>
+        <div className="track-meta">
+          <div className="track-title">{item.title}</div>
+          <div className="track-artist">{item.artist}</div>
+        </div>
+        <VoteButtons
+          upvotesCount={item.upvotesCount}
+          downvotesCount={item.downvotesCount}
+          myVote={myVote}
+          disabled={voteDisabled || pending}
+          onToggle={(direction) => onToggleVote(item.queueItemId, direction)}
+        />
+      </div>
+      {(isMine || boosted || pending) && (
+        <div className="row row--wrap" style={{ gap: 6 }}>
+          {isMine && <span className="pill pill--accent">Your song</span>}
           {item.priorityBoostCount > 0 && (
             <span className="pill pill--warn">Boosted ×{item.priorityBoostCount}</span>
           )}
+          {item.instantVoteCount > 0 && <span className="pill pill--warn">Instant Play</span>}
           {pending && <span className="pill">Pending approval</span>}
         </div>
-      </div>
-      <div>
-        <div className="track-title">{item.title}</div>
-        <div className="track-artist">{item.artist}</div>
-      </div>
-      <VoteButtons
-        upvotesCount={item.upvotesCount}
-        downvotesCount={item.downvotesCount}
-        myVote={myVote}
-        disabled={voteDisabled || pending}
-        onToggle={(direction) => onToggleVote(item.queueItemId, direction)}
-      />
+      )}
     </div>
   );
 }
