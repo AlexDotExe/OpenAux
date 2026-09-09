@@ -13,6 +13,8 @@ export { PgSessionRepository } from './repository.js';
 export type { SessionRepository } from './repository.js';
 
 export { unimplementedAuthVerifier, AuthVerificationError } from './auth.js';
+export { createOidcAuthVerifier } from './oidc-verifier.js';
+export type { OidcVerifierOptions } from './oidc-verifier.js';
 export type { AuthVerifier, VerifiedIdentity } from './auth.js';
 
 export { noopAnalyticsEmitter } from './analytics.js';

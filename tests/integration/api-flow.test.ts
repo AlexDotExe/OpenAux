@@ -98,6 +98,18 @@ describe('patrons join and request', () => {
     expect(state.patrons).toHaveLength(3);
   });
 
+  it('rejects an authToken join when no sign-in provider is configured (fails closed)', async () => {
+    // Security: an unverifiable token must be REJECTED, never silently
+    // downgraded to a guest identity. The test server sets no GOOGLE_CLIENT_ID
+    // or APPLE_CLIENT_ID, so sign-in is disabled here.
+    await expect(
+      api.post(ctx, '/api/sessions/join', {
+        venueQrToken: state.qrToken,
+        authToken: 'not-a-real-id-token',
+      }),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+
   it('rejects a bad QR token', async () => {
     await expect(
       api.post(ctx, '/api/sessions/join', { venueQrToken: 'not-a-real-token' }),

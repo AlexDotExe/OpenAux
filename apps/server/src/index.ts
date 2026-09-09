@@ -24,7 +24,11 @@ import {
   sendSessionExpired,
   sendToConsole,
 } from './realtime/index.js';
-import { PgSessionRepository, registerSessionRoutes } from './sessions/index.js';
+import {
+  PgSessionRepository,
+  registerSessionRoutes,
+  createOidcAuthVerifier,
+} from './sessions/index.js';
 import type { AnalyticsEventEmitter } from './sessions/index.js';
 import { PostgresQueueRepository, registerQueueRoutes } from './queue/index.js';
 import type {
@@ -211,8 +215,15 @@ async function main(): Promise<void> {
   };
 
   // --- WS1 sessions ---
+  // Real Sign in with Google / Apple. The verifier fails closed when neither
+  // GOOGLE_CLIENT_ID nor APPLE_CLIENT_ID is set, so an unconfigured deploy
+  // rejects authToken joins rather than silently downgrading them to guests.
+  if (!process.env.GOOGLE_CLIENT_ID && !process.env.APPLE_CLIENT_ID) {
+    app.log.warn('No GOOGLE_CLIENT_ID/APPLE_CLIENT_ID — sign-in disabled, guest joins only.');
+  }
   registerSessionRoutes(app, {
     repository: new PgSessionRepository(),
+    authVerifier: createOidcAuthVerifier(),
     analytics: analyticsEmitter,
   });
 
