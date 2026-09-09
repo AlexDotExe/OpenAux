@@ -30,6 +30,12 @@ export interface EligibilitySession {
   isActive: boolean;
   /** Set once the session has lapsed (1h inactivity, WS6). */
   sessionExpiredAt: Date | null;
+  /**
+   * Live (queued/playing) request count for this user at this venue. Callers must derive
+   * this at call time (see `QueueRepository.countActiveRequests`) rather than pass through
+   * a stored counter — issue #97: `sessions.active_request_count` is increment-only and
+   * drifts permanently once a patron hits `MAX_ACTIVE_REQUESTS_PER_USER`.
+   */
   activeRequestCount: number;
   lastRequestAt: Date | null;
 }

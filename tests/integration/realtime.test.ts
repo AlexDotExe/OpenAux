@@ -310,6 +310,15 @@ class SharedRealtimeTestRepository
     });
   }
 
+  async countActiveRequests(venueId: VenueId, userId: UserId): Promise<number> {
+    return [...this.queueItems.values()].filter(
+      (item) =>
+        item.venueId === venueId &&
+        item.requestingUserId === userId &&
+        (item.status === 'queued' || item.status === 'playing'),
+    ).length;
+  }
+
   async setForcedNextItem(venueId: VenueId, queueItemId: QueueItemId): Promise<void> {
     this.forcedNextByVenue.set(venueId, queueItemId);
   }

@@ -126,11 +126,14 @@ export class QueueService {
     if (!track) throw new QueueError('not_found', 'Track not found.');
 
     const since = new Date(now.getTime() - DUPLICATE_LOCKOUT_MINUTES * MS_PER_MINUTE);
-    const mostRecentSameSongAt = await repository.getMostRecentSameSongAt(
-      params.venueId,
-      params.providerTrackId,
-      since,
-    );
+    const [mostRecentSameSongAt, activeRequestCount] = await Promise.all([
+      repository.getMostRecentSameSongAt(params.venueId, params.providerTrackId, since),
+      // Derived, not the stored sessions.active_request_count counter (issue #97: that
+      // counter is increment-only and drifts permanently once a patron cycles through
+      // MAX_ACTIVE_REQUESTS_PER_USER requests). Counting live queue_items instead cannot
+      // drift, since a song leaving the live queue for any reason just falls out of it.
+      repository.countActiveRequests(params.venueId, session.userId),
+    ]);
 
     const eligibility = checkRequestEligibility({
       now,
@@ -139,7 +142,7 @@ export class QueueService {
       session: {
         isActive: session.isActive,
         sessionExpiredAt: session.sessionExpiredAt,
-        activeRequestCount: session.activeRequestCount,
+        activeRequestCount,
         lastRequestAt: session.lastRequestAt,
       },
       mostRecentSameSongAt,
