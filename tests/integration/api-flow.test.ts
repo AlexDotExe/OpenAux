@@ -138,6 +138,23 @@ describe('patrons join and request', () => {
     expect(Array.isArray(res.tracks)).toBe(true);
   });
 
+  it('requires identity for catalog search, and accepts EITHER a session or venue admin', async () => {
+    // Regression: search shipped session-gated while the web client sent no auth
+    // at all, so "add a song" failed with "Missing session." — and the venue
+    // console (anthem/override/fallback) has no patron session, so it needs the
+    // admin token to search at all.
+    await expect(
+      api.get(ctx, `/api/venues/${state.venueId}/search?q=track`),
+    ).rejects.toMatchObject({ status: 401 });
+
+    const asOwner = await api.get<{ tracks: unknown[] }>(
+      ctx,
+      `/api/venues/${state.venueId}/search?q=track`,
+      asAdmin(state.ownerToken),
+    );
+    expect(Array.isArray(asOwner.tracks)).toBe(true);
+  });
+
   it('enforces the duplicate lockout', async () => {
     await expect(
       api.post(

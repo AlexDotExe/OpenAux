@@ -542,7 +542,7 @@ export function createMockApiClient(): ApiClient {
       return buildVenueSummary(store);
     },
 
-    async search(venueId: string, query: string): Promise<SearchResponse> {
+    async search(venueId: string, query: string, _auth?: AuthContext): Promise<SearchResponse> {
       if (venueId !== store.venue.venueId) err('not_found', 'Venue not found.');
       const q = query.trim().toLowerCase();
       if (!q) return { tracks: [] };

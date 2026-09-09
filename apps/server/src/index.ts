@@ -199,6 +199,10 @@ async function main(): Promise<void> {
     broadcaster: queueBroadcaster,
     emitAnalyticsEvent: queueEmit,
     providerResolver: queueProviderResolver,
+    // The venue console searches the catalog (anthem/override/fallback) with its
+    // admin token rather than a patron session.
+    verifyVenueAdmin: (venueId: string, token: string | null) =>
+      venueAdminVerifier.verifyVenueAdmin(venueId, token),
     recordSongPlayed: ({
       userId,
       venueId,
