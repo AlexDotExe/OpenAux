@@ -24,7 +24,11 @@ function toEventCommand(command: PlaybackCommand): {
     case 'queueNext':
       return { command: 'queue_next', track: command.track };
     case 'play':
-      return { command: 'play', track: null };
+      // Forward the track: play(target, track) is authoritative for both providers
+      // (Spotify sends uris; the console plays exactly this). Hardcoding null here
+      // left Apple consoles with a trackless play command — harmless only while a
+      // redundant queueNext happened to carry the track first (issue #99).
+      return { command: 'play', track: command.track ?? null };
     case 'pause':
       return { command: 'pause', track: null };
     case 'skip':
